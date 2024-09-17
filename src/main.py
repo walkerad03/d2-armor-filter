@@ -60,7 +60,7 @@ def do_calculations(
     )
 
     armor_list = " or ".join(
-        [f"id:{item.strip('"')}" for item in armor_to_delete["Id"].to_list()]
+        [f"id:{item}" for item in armor_to_delete["Id"].to_list()]
     )
 
     return armor_list
