@@ -5,9 +5,9 @@ import numpy as np
 def _calculate_class_specific_decays(
     class_df: pd.DataFrame, distributions: dict[str, bool]
 ) -> pd.DataFrame:
-    class_df["Mob Res Gap"] = np.NAN
-    class_df["Mob Rec Gap"] = np.NAN
-    class_df["Res Rec Gap"] = np.NAN
+    class_df["Mob Res Gap"] = np.nan
+    class_df["Mob Rec Gap"] = np.nan
+    class_df["Res Rec Gap"] = np.nan
 
     for key, value in distributions.items():
         if value == "False":

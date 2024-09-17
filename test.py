@@ -21,6 +21,7 @@ from PyQt5.QtCore import Qt
 import pandas as pd
 from src.main import do_calculations
 from configparser import ConfigParser
+import os
 
 configur = ConfigParser()
 configur.read("config.ini")
@@ -187,7 +188,9 @@ class SimpleCSVProcessor(QMainWindow):
 
 
 if __name__ == "__main__":
+    os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
     app = QApplication(sys.argv)
+    app.setAttribute(Qt.AA_EnableHighDpiScaling)
     mainWindow = SimpleCSVProcessor()
     mainWindow.show()
     sys.exit(app.exec_())
