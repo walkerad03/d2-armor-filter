@@ -1,4 +1,4 @@
-import pandas as pd
+import polars as pl
 from src.armor_cleaner import (
     calculate_decays,
     find_raid_armor,
@@ -55,13 +55,12 @@ def do_calculations(
 
     exotic_armor = find_exotics(scored_armor, DEFAULT_MINIMUM_QUALITY)
 
-    armor_to_delete = pd.concat(
+    armor_to_delete = pl.concat(
         [low_quality_armor, raid_armor, artifice_armor, exotic_armor]
     )
 
     armor_list = " or ".join(
-        "id:" + str(row["Id"]).strip('"')
-        for _, row in armor_to_delete.iterrows()
+        [f"id:{item.strip('"')}" for item in armor_to_delete["Id"].to_list()]
     )
 
     return armor_list

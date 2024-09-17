@@ -1,147 +1,209 @@
-import pandas as pd
-import numpy as np
+import polars as pl
 
 
 def _calculate_class_specific_decays(
-    class_df: pd.DataFrame, distributions: dict[str, bool]
-) -> pd.DataFrame:
-    class_df["Mob Res Gap"] = np.nan
-    class_df["Mob Rec Gap"] = np.nan
-    class_df["Res Rec Gap"] = np.nan
+    class_df: pl.DataFrame, distributions: dict[str, bool]
+) -> pl.DataFrame:
+    class_df = class_df.with_columns(
+        [
+            pl.lit(None).alias("Mob Res Gap"),
+            pl.lit(None).alias("Mob Rec Gap"),
+            pl.lit(None).alias("Res Rec Gap"),
+        ]
+    )
 
-    for key, value in distributions.items():
-        if value == "False":
-            continue  # Don't run stats on values that distributions that don't matter
+    exprs = []
 
-        if key == "mob_res":
-            class_df["Mob Res Gap"] = 32 - (
-                class_df["Mobility (Base)"] + class_df["Resilience (Base)"]
-            )
+    if distributions.get("mob_res", False) != "False":
+        exprs.append(
+            (
+                32 - (pl.col("Mobility (Base)") + pl.col("Resilience (Base)"))
+            ).alias("Mob Res Gap")
+        )
 
-        if key == "mob_rec":
-            class_df["Mob Rec Gap"] = 32 - (
-                class_df["Mobility (Base)"] + class_df["Recovery (Base)"]
-            )
+    if distributions.get("mob_rec", False) != "False":
+        exprs.append(
+            (
+                32 - (pl.col("Mobility (Base)") + pl.col("Recovery (Base)"))
+            ).alias("Mob Rec Gap")
+        )
 
-        if key == "res_rec":
-            class_df["Res Rec Gap"] = 32 - (
-                class_df["Recovery (Base)"] + class_df["Resilience (Base)"]
-            )
+    if distributions.get("res_rec", False) != "False":
+        exprs.append(
+            (
+                32 - (pl.col("Resilience (Base)") + pl.col("Recovery (Base)"))
+            ).alias("Res Rec Gap")
+        )
 
-        class_df["Top Gap"] = class_df[
-            ["Mob Res Gap", "Mob Rec Gap", "Res Rec Gap"]
-        ].min(axis=1)
+    if exprs:
+        class_df = class_df.with_columns(exprs)
+        # Calculate "Top Gap" as the minimum of the calculated gaps
+        class_df = class_df.with_columns(
+            [
+                pl.min_horizontal(
+                    ["Mob Res Gap", "Mob Rec Gap", "Res Rec Gap"]
+                ).alias("Top Gap")
+            ]
+        )
+    else:
+        # If no distributions are selected, set "Top Gap" to None
+        class_df = class_df.with_columns([pl.lit(None).alias("Top Gap")])
 
     return class_df
 
 
-def _calc_bottom_stat_score(stat, target_stat):
-    score = max(5 - (5 * stat) / target_stat, 0)
-    return score
+def _calc_bottom_stat_score(stat_col: pl.Expr, target_stat: int) -> pl.Expr:
+    return (5 - (5 * stat_col) / target_stat).clip(0, None)
 
 
 def calculate_decays(
-    full_df: pd.DataFrame,
+    df: pl.DataFrame,
     bottom_stat_target: int,
     only_disc: bool,
     hunter_dist: dict[str, bool],
     titan_dist: dict[str, bool],
     warlock_dist: dict[str, bool],
     ignore_tags: bool,
-) -> pd.DataFrame:
-
-    df = full_df.copy()
-
-    # Filter class items, archived armor, and artifice and raid armor
-    df = df[~df["Type"].isin(["Titan Mark", "Warlock Bond", "Hunter Cloak"])]
+) -> pl.DataFrame:
+    df = df.filter(
+        ~pl.col("Type").is_in(["Titan Mark", "Warlock Bond", "Hunter Cloak"])
+    )
     if ignore_tags:
-        df = df[~df["Tag"].isin(["archive", "infuse"])]
+        df = df.filter(~pl.col("Tag").is_in(["archive", "infuse"]))
 
-    # Calculate top and bottom bin gaps
-    df["Top Bin Gap"] = 34 - (
-        df["Mobility (Base)"] + df["Resilience (Base)"] + df["Recovery (Base)"]
+    # Calculate "Top Bin Gap" and clip to zero
+    df = df.with_columns(
+        [
+            (
+                (
+                    34
+                    - (
+                        pl.col("Mobility (Base)")
+                        + pl.col("Resilience (Base)")
+                        + pl.col("Recovery (Base)")
+                    )
+                )
+                .clip(0, None)
+                .alias("Top Bin Gap")
+            )
+        ]
     )
 
-    df["Top Bin Gap"] = df["Top Bin Gap"].clip(0, df["Top Bin Gap"])
-
-    df["Bottom Bin Gap"] = 34 - (
-        df["Discipline (Base)"]
-        + df["Intellect (Base)"]
-        + df["Strength (Base)"]
+    # Calculate "Bottom Bin Gap" and clip to zero
+    df = df.with_columns(
+        [
+            (
+                (
+                    34
+                    - (
+                        pl.col("Discipline (Base)")
+                        + pl.col("Intellect (Base)")
+                        + pl.col("Strength (Base)")
+                    )
+                )
+                .clip(0, None)
+                .alias("Bottom Bin Gap")
+            )
+        ]
     )
 
-    df["Bottom Bin Gap"] = df["Bottom Bin Gap"].clip(0, df["Bottom Bin Gap"])
+    # Define class distributions
+    class_distributions = {
+        "Hunter": hunter_dist,
+        "Titan": titan_dist,
+        "Warlock": warlock_dist,
+    }
 
-    # Calculate gaps separately per class to allow for different distribution
-    # targets
+    # Process each class separately
+    dfs = []
+    for class_name, distributions in class_distributions.items():
+        class_df = df.filter(pl.col("Equippable") == class_name)
+        class_df = _calculate_class_specific_decays(class_df, distributions)
+        dfs.append(class_df)
 
-    hunter_df = df[df["Equippable"] == "Hunter"].copy()
-    hunter_df = _calculate_class_specific_decays(hunter_df, hunter_dist)
+    # Concatenate the processed class DataFrames
+    df = pl.concat(dfs)
 
-    warlock_df = df[df["Equippable"] == "Warlock"].copy()
-    warlock_df = _calculate_class_specific_decays(warlock_df, warlock_dist)
-
-    titan_df = df[df["Equippable"] == "Titan"].copy()
-    titan_df = _calculate_class_specific_decays(titan_df, titan_dist)
-
-    df = pd.concat([hunter_df, warlock_df, titan_df])
-
+    # Calculate "Bottom Quality"
     if only_disc:
-        df["Bottom Quality"] = df["Discipline (Base)"].apply(
-            lambda x: _calc_bottom_stat_score(x, bottom_stat_target)
+        df = df.with_columns(
+            [
+                _calc_bottom_stat_score(
+                    pl.col("Discipline (Base)"), bottom_stat_target
+                ).alias("Bottom Quality")
+            ]
         )
     else:
-        df["Disc Quality"] = df["Discipline (Base)"].apply(
-            lambda x: _calc_bottom_stat_score(x, bottom_stat_target)
+        df = df.with_columns(
+            [
+                _calc_bottom_stat_score(
+                    pl.col("Discipline (Base)"), bottom_stat_target
+                ).alias("Disc Quality"),
+                _calc_bottom_stat_score(
+                    pl.col("Intellect (Base)"), bottom_stat_target
+                ).alias("Int Quality"),
+                _calc_bottom_stat_score(
+                    pl.col("Strength (Base)"), bottom_stat_target
+                ).alias("Str Quality"),
+                pl.min_horizontal(
+                    ["Disc Quality", "Int Quality", "Str Quality"]
+                ).alias("Bottom Quality"),
+            ]
         )
-        df["Int Quality"] = df["Intellect (Base)"].apply(
-            lambda x: _calc_bottom_stat_score(x, bottom_stat_target)
-        )
-        df["Str Quality"] = df["Strength (Base)"].apply(
-            lambda x: _calc_bottom_stat_score(x, bottom_stat_target)
-        )
-        df["Bottom Quality"] = df[
-            ["Disc Quality", "Int Quality", "Str Quality"]
-        ].min(axis=1)
 
-    df["Top Decay"] = df["Top Gap"] / 7.0 + df["Top Bin Gap"] / 3.0
-    df["Quality Decay"] = (
-        df["Top Decay"] + (df["Bottom Bin Gap"] + df["Bottom Quality"]) / 4
+    # First, calculate "Top Decay"
+    df = df.with_columns(
+        [
+            ((pl.col("Top Gap") / 7.0) + (pl.col("Top Bin Gap") / 3.0)).alias(
+                "Top Decay"
+            )
+        ]
     )
+
+    # Then, calculate "Quality Decay" using the newly created "Top Decay" column
+    df = df.with_columns(
+        [
+            (
+                pl.col("Top Decay")
+                + (pl.col("Bottom Bin Gap") + pl.col("Bottom Quality")) / 4
+            ).alias("Quality Decay")
+        ]
+    )
+
     return df
 
 
 def find_low_quality_armor(
-    df: pd.DataFrame, min_quality: float
-) -> pd.DataFrame:
-    working_df = df.copy()
-    working_df = working_df[working_df["Tier"] != "Exotic"]
-    working_df = working_df[
-        ~(
-            working_df["Seasonal Mod"].isin(
-                [
-                    "vaultofglass",
-                    "vowofthedisciple",
-                    "rootofnightmares",
-                    "deepstonecrypt",
-                    "lastwish",
-                    "kingsfall",
-                    "crotasend",
-                    "gardenofsalvation",
-                    "salvationsedge",
-                    "artifice",
-                ]
-            )
-            | working_df["Perks 0"].isin(["Riven's Curse*"])
-        )
+    df: pl.DataFrame, min_quality: float
+) -> pl.DataFrame:
+    seasonal_mods_to_exclude = [
+        "vaultofglass",
+        "vowofthedisciple",
+        "rootofnightmares",
+        "deepstonecrypt",
+        "lastwish",
+        "kingsfall",
+        "crotasend",
+        "gardenofsalvation",
+        "salvationsedge",
+        "artifice",
     ]
-    armor_to_delete = working_df[working_df["Quality Decay"] >= min_quality]
+
+    armor_to_delete = df.filter(
+        (pl.col("Tier") != "Exotic")
+        & (
+            (~pl.col("Seasonal Mod").is_in(seasonal_mods_to_exclude))
+            | pl.col("Seasonal Mod").is_null()
+        )
+        & (pl.col("Perks 0") != "Riven's Curse*")
+        & (pl.col("Quality Decay") >= min_quality)
+    )
 
     return armor_to_delete
 
 
 def find_artifice_armor(
-    df: pd.DataFrame,
+    df: pl.DataFrame,
     min_quality: float,
     bottom_stat_target: int,
     only_disc: bool,
@@ -149,11 +211,11 @@ def find_artifice_armor(
     titan_dist: dict[str, bool],
     warlock_dist: dict[str, bool],
     ignore_tags: bool,
-) -> pd.DataFrame:
-    # Check each class individually
-    artifice = df[
-        (df["Seasonal Mod"] == "artifice") & (df["Tier"] != "Exotic")
-    ].copy()
+) -> pl.DataFrame:
+    # Filter for artifice armor that's not exotic
+    artifice = df.filter(
+        (pl.col("Seasonal Mod") == "artifice") & (pl.col("Tier") != "Exotic")
+    )
 
     changable_cols = [
         "Mobility (Base)",
@@ -164,14 +226,20 @@ def find_artifice_armor(
         "Strength (Base)",
     ]
 
-    new_df = pd.DataFrame(columns=artifice.columns)
+    # List to hold modified DataFrames
+    modified_dfs = []
 
+    # Modify each stat column by adding 2 and collect the DataFrames
     for col in changable_cols:
-        working_df = artifice.copy()
-        working_df[col] += 2
-        if not working_df.empty:
-            new_df = pd.concat([new_df, working_df], ignore_index=True)
+        working_df = artifice.clone()
+        working_df = working_df.with_columns((pl.col(col) + 2).alias(col))
+        if working_df.height > 0:
+            modified_dfs.append(working_df)
 
+    # Concatenate all modified DataFrames
+    new_df = pl.concat(modified_dfs)
+
+    # Calculate decays using the provided function
     new_df = calculate_decays(
         new_df,
         bottom_stat_target,
@@ -182,20 +250,28 @@ def find_artifice_armor(
         ignore_tags,
     )
 
-    quality_min = new_df.groupby("Id")["Quality Decay"].min()
-    ids_to_remove = quality_min[quality_min < min_quality].index
-    filtered_df = new_df[~new_df["Id"].isin(ids_to_remove)]
-
-    filtered_df["Quality Decay"] = pd.to_numeric(
-        filtered_df["Quality Decay"], errors="coerce"
+    # Get the minimum "Quality Decay" per "Id"
+    quality_min = new_df.group_by("Id").agg(
+        pl.col("Quality Decay").min().alias("Quality Decay")
     )
-    idx = filtered_df.groupby("Id")["Quality Decay"].idxmin()
-    final_df = filtered_df.loc[idx]
+
+    # Identify Ids to remove (those with minimum "Quality Decay" < min_quality)
+    ids_to_remove = quality_min.filter(pl.col("Quality Decay") < min_quality)[
+        "Id"
+    ]
+
+    # Filter the DataFrame to exclude the Ids to remove
+    filtered_df = new_df.filter(~pl.col("Id").is_in(ids_to_remove))
+
+    # For each "Id", select the row with the minimum "Quality Decay"
+    final_df = filtered_df.sort(["Id", "Quality Decay"]).unique(
+        subset=["Id"], keep="first"
+    )
 
     return final_df
 
 
-def find_raid_armor(df: pd.DataFrame, min_quality: float) -> pd.DataFrame:
+def find_raid_armor(df: pl.DataFrame, min_quality: float) -> pl.DataFrame:
     raid_modslots: list[str] = [
         "vaultofglass",
         "vowofthedisciple",
@@ -208,70 +284,52 @@ def find_raid_armor(df: pd.DataFrame, min_quality: float) -> pd.DataFrame:
         "salvationsedge",
     ]
 
-    classes = df["Equippable"].unique()
+    raid_armor = df.filter(
+        (pl.col("Seasonal Mod").is_in(raid_modslots))
+        | (pl.col("Perks 0") == "Riven's Curse*")
+    )
 
-    raid_armor = df[
-        df["Seasonal Mod"].isin(raid_modslots)
-        | df["Perks 0"].isin(["Riven's Curse*"])
-    ]
+    result = (
+        raid_armor.with_columns(
+            [
+                pl.col("Quality Decay")
+                .rank("ordinal", descending=False)
+                .over(["Equippable", "Seasonal Mod", "Type"])
+                .alias("quality_rank")
+            ]
+        )
+        .filter(pl.col("quality_rank") > 1)
+        .filter(pl.col("Quality Decay") > min_quality)
+        .drop("quality_rank")
+    )
 
-    armor_to_delete = pd.DataFrame(columns=raid_armor.columns)
-
-    for d2class in classes:
-        class_armor = raid_armor[raid_armor["Equippable"] == d2class].copy()
-
-        raid_sets = class_armor["Seasonal Mod"].unique()
-        armor_types = class_armor["Type"].unique()
-
-        for raid in raid_sets:
-            for armor_type in armor_types:
-                filtered_df = class_armor[
-                    (class_armor["Seasonal Mod"] == raid)
-                    & (class_armor["Type"] == armor_type)
-                    & (class_armor["Equippable"] == d2class)
-                ]
-
-                if filtered_df.empty:
-                    continue
-
-                min_quality_row_index = filtered_df["Quality Decay"].idxmin()
-                current_checked_armor = filtered_df.drop(min_quality_row_index)
-
-                armor_to_delete = pd.concat(
-                    [armor_to_delete, current_checked_armor]
-                )
-
-    armor_to_delete = armor_to_delete[
-        armor_to_delete["Quality Decay"] > min_quality
-    ]
-
-    return armor_to_delete
+    return result
 
 
-def find_exotics(df: pd.DataFrame, min_quality: float) -> pd.DataFrame:
-    exotic_df = df[df["Tier"] == "Exotic"].copy()
-    exotics = df["Hash"].unique()
+def find_exotics(df: pl.DataFrame, min_quality: float) -> pl.DataFrame:
+    exotics_df = df.filter(pl.col("Tier") == "Exotic")
 
-    armor_to_delete = pd.DataFrame(columns=df.columns)
+    group_sizes = (
+        exotics_df.group_by("Hash").count().rename({"count": "group_size"})
+    )
 
-    for exotic in exotics:
-        working_df = exotic_df[exotic_df["Hash"] == exotic].copy()
+    ranked_df = exotics_df.with_columns(
+        [
+            pl.col("Quality Decay")
+            .rank("ordinal", descending=False)
+            .over("Hash")
+            .alias("quality_rank")
+        ]
+    )
 
-        if len(working_df) <= 2:
-            continue
+    ranked_df = ranked_df.join(group_sizes, on="Hash")
 
-        for _ in range(2):
-            min_quality_row_index = working_df["Quality Decay"].idxmin()
-            working_df = working_df.drop(min_quality_row_index)
+    result = ranked_df.filter(
+        (pl.col("group_size") > 2)
+        & (pl.col("quality_rank") > 2)
+        & (pl.col("Quality Decay") > min_quality)
+    )
 
-        if not working_df.empty:
-            frames = [armor_to_delete, working_df]
-            armor_to_delete = pd.concat(frames)
-        else:
-            print(working_df)
+    result = result.drop(["quality_rank", "group_size"])
 
-    armor_to_delete = armor_to_delete[
-        armor_to_delete["Quality Decay"] > min_quality
-    ]
-
-    return armor_to_delete
+    return result

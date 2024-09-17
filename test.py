@@ -15,10 +15,11 @@ from PyQt5.QtWidgets import (
     QLineEdit,
     QGridLayout,
     QSlider,
+    QMessageBox,
 )
 from PyQt5.QtGui import QIcon
 from PyQt5.QtCore import Qt
-import pandas as pd
+import polars as pl
 from src.main import do_calculations
 from configparser import ConfigParser
 import os
@@ -165,32 +166,33 @@ class SimpleCSVProcessor(QMainWindow):
             self.outputText.setText(f"File selected: {self.fileName}")
 
     def processCSV(self):
-        if hasattr(self, "fileName") and self.fileName:
-            # Read the CSV file
-            df = pd.read_csv(self.fileName)
+        if not hasattr(self, "fileName") or not self.fileName:
+            # Display an error message to the user
+            QMessageBox.warning(self, "Error", "No file selected.")
+            return
+        # Read the CSV file
+        df = pl.read_csv(self.fileName)
 
-            min_quality = self.minQualityInput.text()
-            bottom_stat_target = self.bottomStatTargetInput.value()
+        min_quality = self.minQualityInput.text()
+        bottom_stat_target = self.bottomStatTargetInput.value()
 
-            distributions = self.extract_grid_values()
+        distributions = self.extract_grid_values()
 
-            result = do_calculations(
-                df,
-                min_quality,
-                bottom_stat_target,
-                distributions,
-            )
+        result = do_calculations(
+            df,
+            min_quality,
+            bottom_stat_target,
+            distributions,
+        )
 
-            # Set the output string to the text edit
-            self.outputText.setText(result)
-        else:
-            self.outputText.setText("No file selected.")
+        # Set the output string to the text edit
+        self.outputText.setText(result)
 
 
 if __name__ == "__main__":
     os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
+    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
     app = QApplication(sys.argv)
-    app.setAttribute(Qt.AA_EnableHighDpiScaling)
     mainWindow = SimpleCSVProcessor()
     mainWindow.show()
     sys.exit(app.exec_())
