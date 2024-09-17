@@ -69,7 +69,11 @@ def calculate_decays(
         ~pl.col("Type").is_in(["Titan Mark", "Warlock Bond", "Hunter Cloak"])
     )
     if ignore_tags:
-        df = df.filter(~pl.col("Tag").is_in(["archive", "infuse"]))
+        df = df.filter(
+            pl.col("Tag").is_in(["archive", "infuse"]).not_()
+            | pl.col("Tag").is_null()
+        )
+        print(df.head())
 
     # Calculate "Top Bin Gap" and clip to zero
     df = df.with_columns(
@@ -192,10 +196,13 @@ def find_low_quality_armor(
     armor_to_delete = df.filter(
         (pl.col("Tier") != "Exotic")
         & (
-            (~pl.col("Seasonal Mod").is_in(seasonal_mods_to_exclude))
+            pl.col("Seasonal Mod").is_in(seasonal_mods_to_exclude).not_()
             | pl.col("Seasonal Mod").is_null()
         )
-        & (pl.col("Perks 0") != "Riven's Curse*")
+        & (
+            pl.col("Perks 0").is_in(["Riven's Curse*"]).not_()
+            | pl.col("Perks 0").is_null()
+        )
         & (pl.col("Quality Decay") >= min_quality)
     )
 
