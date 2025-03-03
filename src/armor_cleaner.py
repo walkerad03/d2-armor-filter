@@ -1,8 +1,27 @@
 import polars as pl
 
 
+def keep_max_power_armor(df: pl.DataFrame):
+    df = df.sort(
+        by=["Type", "Equippable", "Power", "Quality Decay"],
+        descending=[False, False, True, False],
+    )
+
+    max_power_per_group = df.group_by(["Type", "Equippable"]).agg(
+        pl.max("Power").alias("Max Power")
+    )
+
+    filtered = (
+        df.join(max_power_per_group, on=["Type", "Equippable"])
+        .filter(pl.col("Power") != pl.col("Max Power"))
+        .drop(["Max Power"])
+    )
+
+    return filtered
+
+
 def _calculate_class_specific_decays(
-    class_df: pl.DataFrame, distributions: dict[str, bool]
+    class_df: pl.DataFrame, distributions
 ) -> pl.DataFrame:
     class_df = class_df.with_columns(
         [
@@ -60,20 +79,20 @@ def calculate_decays(
     df: pl.DataFrame,
     bottom_stat_target: int,
     only_disc: bool,
-    hunter_dist: dict[str, bool],
-    titan_dist: dict[str, bool],
-    warlock_dist: dict[str, bool],
+    hunter_dist,
+    titan_dist,
+    warlock_dist,
     ignore_tags: bool,
+    always_keep_highest_power: bool,
 ) -> pl.DataFrame:
     df = df.filter(
         ~pl.col("Type").is_in(["Titan Mark", "Warlock Bond", "Hunter Cloak"])
     )
-    if ignore_tags:
+    if not ignore_tags:
         df = df.filter(
             pl.col("Tag").is_in(["archive", "infuse"]).not_()
             | pl.col("Tag").is_null()
         )
-        print(df.head())
 
     # Calculate "Top Bin Gap" and clip to zero
     df = df.with_columns(
@@ -174,6 +193,9 @@ def calculate_decays(
         ]
     )
 
+    if always_keep_highest_power:
+        df = keep_max_power_armor(df)
+
     return df
 
 
@@ -214,10 +236,11 @@ def find_artifice_armor(
     min_quality: float,
     bottom_stat_target: int,
     only_disc: bool,
-    hunter_dist: dict[str, bool],
-    titan_dist: dict[str, bool],
-    warlock_dist: dict[str, bool],
+    hunter_dist,
+    titan_dist,
+    warlock_dist,
     ignore_tags: bool,
+    always_keep_highest_power: bool,
 ) -> pl.DataFrame:
     # Filter for artifice armor that's not exotic
     artifice = df.filter(
@@ -255,6 +278,7 @@ def find_artifice_armor(
         titan_dist,
         warlock_dist,
         ignore_tags,
+        always_keep_highest_power,
     )
 
     # Get the minimum "Quality Decay" per "Id"

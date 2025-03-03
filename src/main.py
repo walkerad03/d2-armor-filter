@@ -20,6 +20,9 @@ def do_calculations(
     DEFAULT_BOTTOM_STAT_TARGET = int(bottom_stat_target)
     ONLY_USE_DISCIPLINE = configur.getboolean("values", "ONLY_USE_DISCIPLINE")
     IGNORE_TAGS = configur.getboolean("values", "IGNORE_TAGS")
+    ALWAYS_KEEP_HIGHEST_POWER = configur.getboolean(
+        "values", "ALWAYS_KEEP_HIGHEST_POWER"
+    )
 
     HUNTER_DIST = distributions["hunter distributions"]
     TITAN_DIST = distributions["titan distributions"]
@@ -34,6 +37,7 @@ def do_calculations(
         TITAN_DIST,
         WARLOCK_DIST,
         IGNORE_TAGS,
+        ALWAYS_KEEP_HIGHEST_POWER,
     )
 
     raid_armor = find_raid_armor(scored_armor, DEFAULT_MINIMUM_QUALITY)
@@ -51,6 +55,7 @@ def do_calculations(
         TITAN_DIST,
         WARLOCK_DIST,
         IGNORE_TAGS,
+        ALWAYS_KEEP_HIGHEST_POWER,
     )
 
     exotic_armor = find_exotics(scored_armor, DEFAULT_MINIMUM_QUALITY)
