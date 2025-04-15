@@ -17,12 +17,16 @@ from PyQt5.QtWidgets import (
     QSlider,
     QMessageBox,
 )
-from PyQt5.QtGui import QIcon
+
+from PyQt5.QtSvg import QSvgWidget
+from PyQt5.QtGui import QIcon, QFontMetrics
 from PyQt5.QtCore import Qt
 import polars as pl
 from src.main import do_calculations
 from configparser import ConfigParser
 import os
+
+from src.destiny_api import ManifestBrowser
 
 configur = ConfigParser()
 configur.read("config.ini")
@@ -61,9 +65,7 @@ class SimpleCSVProcessor(QMainWindow):
         )
         leftLayout.addWidget(self.minQualityInput)
 
-        bottomStatDefault = configur.getint(
-            "values", "DEFAULT_BOTTOM_STAT_TARGET"
-        )
+        bottomStatDefault = configur.getint("values", "DEFAULT_BOTTOM_STAT_TARGET")
 
         self.bottomStatTargetLabel = QLabel(
             f"Bottom Stat Target: {bottomStatDefault}", self
@@ -72,9 +74,7 @@ class SimpleCSVProcessor(QMainWindow):
 
         self.bottomStatTargetInput = QSlider(Qt.Horizontal, self)
         self.bottomStatTargetInput.setRange(2, 30)
-        self.bottomStatTargetInput.setTickPosition(
-            QSlider.TickPosition.TicksBelow
-        )
+        self.bottomStatTargetInput.setTickPosition(QSlider.TickPosition.TicksBelow)
         self.bottomStatTargetInput.setValue(bottomStatDefault)
         self.bottomStatTargetInput.valueChanged.connect(self.updateSlider)
         leftLayout.addWidget(self.bottomStatTargetInput)
@@ -84,48 +84,70 @@ class SimpleCSVProcessor(QMainWindow):
         WARLOCK_DIST = dict(configur.items("warlock distributions"))
 
         gridLayout = QGridLayout()
-        categories1 = ["Hunter", "Warlock", "Titan"]
-        categories2 = ["Mob + Rec", "Mob + Res", "Res + Rec"]
-        self.checkbox_dict = {}
 
-        self.checkboxes = {}
+        hunter_label = QLabel("Hunter")
+        warlock_label = QLabel("Warlock")
+        titan_label = QLabel("Titan")
 
-        for i, cat1 in enumerate(categories1):
-            for j, cat2 in enumerate(categories2):
-                checkbox = QCheckBox(f"{cat1}-{cat2}")
-                gridLayout.addWidget(checkbox, i, j)
+        gridLayout.addWidget(hunter_label, 0, 1)
+        gridLayout.addWidget(warlock_label, 0, 2)
+        gridLayout.addWidget(titan_label, 0, 3)
 
-                config_key = "_".join(cat2.lower().split(" + "))
+        font_metrics = QFontMetrics(hunter_label.font())
+        text_height = font_metrics.height()
 
-                # Set the checkbox state based on the config value
-                if cat1.lower() == "hunter":
-                    checkbox.setChecked(
-                        HUNTER_DIST.get(config_key, "False").lower() == "true"
-                    )
-                elif cat1.lower() == "warlock":
-                    checkbox.setChecked(
-                        WARLOCK_DIST.get(config_key, "False").lower() == "true"
-                    )
-                elif cat1.lower() == "titan":
-                    checkbox.setChecked(
-                        TITAN_DIST.get(config_key, "False").lower() == "true"
-                    )
+        mobil_path = "src/assets/svg/mobility.svg"
+        recov_path = "src/assets/svg/recovery.svg"
+        resil_path = "src/assets/svg/resilience.svg"
 
-                # Store the checkbox in a dictionary for easy access later
-                self.checkbox_dict[(cat1, cat2)] = checkbox
+        gridLayout.addLayout(
+            self.make_double_svg_container(mobil_path, resil_path, text_height), 1, 0
+        )
+
+        gridLayout.addLayout(
+            self.make_double_svg_container(mobil_path, recov_path, text_height), 2, 0
+        )
+
+        gridLayout.addLayout(
+            self.make_double_svg_container(resil_path, recov_path, text_height), 3, 0
+        )
+
+        for x in range(1, 4):
+            for y in range(1, 4):
+                gridLayout.addWidget(QCheckBox(), x, y)
 
         leftLayout.addLayout(gridLayout)
-
         mainLayout.addLayout(leftLayout)
 
         self.outputText = QTextEdit(self)
         mainLayout.addWidget(self.outputText)
 
+        rightLayout = QVBoxLayout()
+        rightLayout.setSpacing(0)
+
         self.processButton = QPushButton("Run Armor Analysis", self)
-        mainLayout.addWidget(self.processButton)
+        rightLayout.addWidget(self.processButton)
+
+        mainLayout.addLayout(rightLayout)
 
         self.uploadButton.clicked.connect(self.uploadFile)
         self.processButton.clicked.connect(self.processCSV)
+
+    def make_double_svg_container(self, path_1, path_2, size):
+        # TODO: Finish later.
+        layout = QHBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        icon_1 = QSvgWidget(path_1)
+        icon_2 = QSvgWidget(path_2)
+
+        icon_1.setFixedSize(size, size)
+        icon_2.setFixedSize(size, size)
+        layout.addWidget(icon_1)
+        # layout.addWidget(QLabel(" + "))
+        layout.addWidget(icon_2)
+
+        return layout
 
     def extract_grid_values(self):
         hunter_dist = {}
@@ -178,20 +200,27 @@ class SimpleCSVProcessor(QMainWindow):
 
         distributions = self.extract_grid_values()
 
-        result = do_calculations(
+        text_result, hash_list = do_calculations(
             df,
             min_quality,
             bottom_stat_target,
             distributions,
         )
 
+        # THIS IS TEMPORARY
+        manifest_browser = ManifestBrowser()
+
+        for idx, hash_value in enumerate(hash_list):
+            manifest_browser.get_item_icon_from_hash(hash_value, f"icons/{idx}.png")
+
         # Set the output string to the text edit
-        self.outputText.setText(result)
+        self.outputText.setText(text_result)
 
 
 if __name__ == "__main__":
     os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
-    QApplication.setAttribute(Qt.AA_EnableHighDpiScaling)
+    os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "1"
+
     app = QApplication(sys.argv)
     mainWindow = SimpleCSVProcessor()
     mainWindow.show()

@@ -13,9 +13,7 @@ configur = ConfigParser()
 configur.read("config.ini")
 
 
-def do_calculations(
-    armor_file, min_quality, bottom_stat_target, distributions
-):
+def do_calculations(armor_file, min_quality, bottom_stat_target, distributions):
     DEFAULT_MINIMUM_QUALITY = float(min_quality)
     DEFAULT_BOTTOM_STAT_TARGET = int(bottom_stat_target)
     ONLY_USE_DISCIPLINE = configur.getboolean("values", "ONLY_USE_DISCIPLINE")
@@ -42,9 +40,7 @@ def do_calculations(
 
     raid_armor = find_raid_armor(scored_armor, DEFAULT_MINIMUM_QUALITY)
 
-    low_quality_armor = find_low_quality_armor(
-        scored_armor, DEFAULT_MINIMUM_QUALITY
-    )
+    low_quality_armor = find_low_quality_armor(scored_armor, DEFAULT_MINIMUM_QUALITY)
 
     artifice_armor = find_artifice_armor(
         armor_file,
@@ -64,8 +60,6 @@ def do_calculations(
         [low_quality_armor, raid_armor, artifice_armor, exotic_armor]
     )
 
-    armor_list = " or ".join(
-        [f"id:{item}" for item in armor_to_delete["Id"].to_list()]
-    )
+    armor_list = " or ".join([f"id:{item}" for item in armor_to_delete["Id"].to_list()])
 
-    return armor_list
+    return armor_list, armor_to_delete["Hash"].to_list()
