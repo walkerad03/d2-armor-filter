@@ -54,6 +54,27 @@ class ManifestBrowser:
             raise ValueError(f"db call returned more than 1 result: {len(items)}")
 
         return items
+    
+    def get_item_details_from_hash(self, hash_value: int):
+        id_val = int(hash_value)
+        if (id_val & (1 << (32 - 1))) != 0:
+            id_val = id_val - (1 << 32)
+
+        con = sqlite3.connect(f"{self.MANIFEST_STORAGE_DIR}manifest.content")
+        cur = con.cursor()
+        cur.execute(f"SELECT * FROM DestinyInventoryItemDefinition WHERE id={id_val};")
+        items = cur.fetchall()
+
+        if len(items) > 1:
+            raise ValueError(f"db call returned more than 1 result: {len(items)}")
+        
+        json_data = json.loads(items[0][1])
+        
+        item_data = {}
+        item_data["name"] = json_data['displayProperties']["name"]
+        item_data["flavorText"] = json_data["flavorText"]
+        
+        return item_data
 
     def get_item_icon_from_hash(self, hash_value: int, file_name: str):
         id_val = int(hash_value)

@@ -7,6 +7,10 @@ from src.armor_cleaner import (
     find_exotics,
 )
 from configparser import ConfigParser
+from src.ui import ArmorCleanerUI
+import os
+import sys
+from PyQt5.QtWidgets import QApplication
 
 # Read config values
 configur = ConfigParser()
@@ -63,3 +67,19 @@ def do_calculations(armor_file, min_quality, bottom_stat_target, distributions):
     armor_list = " or ".join([f"id:{item}" for item in armor_to_delete["Id"].to_list()])
 
     return armor_list, armor_to_delete["Hash"].to_list()
+
+
+def main():
+    configur = ConfigParser()
+
+    os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
+    os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "1"
+
+    app = QApplication(sys.argv)
+    ui = ArmorCleanerUI(config_parser=configur, do_calculations=do_calculations)
+    ui.show()
+    sys.exit(app.exec_())
+
+
+if __name__ == "__main__":
+    main()

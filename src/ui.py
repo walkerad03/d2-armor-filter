@@ -1,5 +1,4 @@
 import os
-import sys
 from configparser import ConfigParser
 import numpy as np
 import polars as pl
@@ -27,15 +26,40 @@ from PyQt5.QtWidgets import (
 )
 
 from src.destiny_api import ManifestBrowser
-from src.main import do_calculations
 
 
-class SimpleCSVProcessor(QMainWindow):
-    def __init__(self):
+class HoverImage(QLabel):
+    def __init__(
+        self, pixmap_path, image_size, tooltip_title, tooltip_body, parent=None
+    ):
+        super().__init__(parent)
+        self.setPixmap(
+            QPixmap(pixmap_path).scaled(image_size, image_size, Qt.KeepAspectRatio)
+        )
+        self.setMouseTracking(True)
+        self.setToolTip(f"""
+                        <b>{tooltip_title}</b><br>{tooltip_body}
+                        """)
+        self.setStyleSheet("border: 2px solid transparent;")
+
+    def enterEvent(self, event):
+        self.setStyleSheet("border: 2px solid #00aaff;")
+        super().enterEvent(event)
+
+    def leaveEvent(self, event):
+        self.setStyleSheet("border: 2px solid transparent;")
+        super().leaveEvent(event)
+
+
+class ArmorCleanerUI(QMainWindow):
+    def __init__(self, config_parser: ConfigParser, do_calculations):
         super().__init__()
 
-        self.configur = ConfigParser()
+        self.configur = config_parser
         self.configur.read("config.ini")
+
+        # NOTE: Temporary
+        self.do_calculations = do_calculations
 
         self.setWindowTitle("Walker's Destiny Armor Tool")
         self.setWindowIcon(QIcon("src/assets/icon.png"))
@@ -138,17 +162,20 @@ class SimpleCSVProcessor(QMainWindow):
         for x in range(3):
             for y in range(3):
                 checkbox = QCheckBox()
-                checkbox_layout.addWidget(checkbox, x+1, y+1)
+                checkbox_layout.addWidget(checkbox, x + 1, y + 1)
                 self.checkboxes[x][y] = checkbox
-                
+
                 checkbox.stateChanged.connect(
                     lambda state, r=x, c=y: self.update_config_from_checkbox(r, c)
                 )
 
         self.config_keys = ["mob_res", "mob_rec", "res_rec"]
-        self.class_keys = ["hunter distributions", "warlock distributions", "titan distributions"]
+        self.class_keys = [
+            "hunter distributions",
+            "warlock distributions",
+            "titan distributions",
+        ]
 
-        
         for col, class_key in enumerate(self.class_keys):
             for row, stat_key in enumerate(self.config_keys):
                 value = self.configur.getboolean(class_key, stat_key)
@@ -166,7 +193,7 @@ class SimpleCSVProcessor(QMainWindow):
 
         # Create right layout and add widgets
         right_layout = QVBoxLayout()
-        
+
         image_container = QWidget()
         self.image_box = QGridLayout()
         image_container.setLayout(self.image_box)
@@ -175,7 +202,7 @@ class SimpleCSVProcessor(QMainWindow):
         scroll_area.setWidget(image_container)
         scroll_area.setWidgetResizable(True)
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        
+
         run_button = QPushButton("Clean Armor")
         right_layout.addWidget(scroll_area)
         right_layout.addWidget(run_button)
@@ -228,7 +255,7 @@ class SimpleCSVProcessor(QMainWindow):
         layout.addWidget(icon_2)
 
         return layout
-    
+
     def update_min_quality_config(self):
         value = self.min_quality_input.text()
 
@@ -240,7 +267,7 @@ class SimpleCSVProcessor(QMainWindow):
         except ValueError:
             # Optionally show a warning dialog or reset the field
             print("Invalid input: must be a number")
-    
+
     def update_config_from_checkbox(self, row, col):
         section = self.class_keys[col]
         key = self.config_keys[row]
@@ -261,7 +288,7 @@ class SimpleCSVProcessor(QMainWindow):
             for row, stat_key in enumerate(self.config_keys):
                 checkbox = self.checkboxes[row][col]
                 grid_values[class_key][stat_key] = checkbox.isChecked()
-        
+
         return grid_values
 
     def update_disc_slider(self, value):
@@ -288,10 +315,10 @@ class SimpleCSVProcessor(QMainWindow):
             # Display an error message to the user
             QMessageBox.warning(self, "Error", "No file selected.")
             return
-        
+
         self.output_box.setText("Checking armor")
 
-        for i in reversed(range(self.image_box.count())): 
+        for i in reversed(range(self.image_box.count())):
             self.image_box.itemAt(i).widget().setParent(None)
 
         # Read the CSV file
@@ -302,7 +329,7 @@ class SimpleCSVProcessor(QMainWindow):
 
         distributions = self.extract_grid_values()
 
-        text_result, hash_list = do_calculations(
+        text_result, hash_list = self.do_calculations(
             df,
             min_quality,
             bottom_stat_target,
@@ -321,31 +348,28 @@ class SimpleCSVProcessor(QMainWindow):
 
         image_window_width = self.image_box.parentWidget().width()
         image_window_spacing = self.image_box.spacing()
-        num_cols = int(np.floor(image_window_width / (64+ image_window_spacing)))
+        num_cols = int(np.floor(image_window_width / (64 + image_window_spacing)))
 
         for idx, hash_value in enumerate(hash_list):
             manifest_browser.get_item_icon_from_hash(
                 hash_value, f"data/icons/{hash_value}.png"
             )
+            item_data = manifest_browser.get_item_details_from_hash(hash_value)
+
             image_paths.append(f"data/icons/{hash_value}.png")
 
             row = idx // num_cols
             col = idx % num_cols
 
-            label = QLabel()
-            pixmap = QPixmap(f"data/icons/{hash_value}.png")
-            label.setPixmap(pixmap.scaled(64, 64))
+            label = HoverImage(
+                pixmap_path=f"data/icons/{hash_value}.png",
+                image_size=64,
+                tooltip_title=item_data["name"],
+                tooltip_body=item_data["flavorText"],
+            )
             self.image_box.addWidget(label, row, col)
 
-        self.output_box.setText(f"Found {len(hash_list)} Armor Pieces. DIM query copied to clipboard.")
+        self.output_box.setText(
+            f"Found {len(hash_list)} Armor Pieces. DIM query copied to clipboard."
+        )
         QApplication.clipboard().setText(text_result)
-
-
-if __name__ == "__main__":
-    os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
-    os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "1"
-
-    app = QApplication(sys.argv)
-    mainWindow = SimpleCSVProcessor()
-    mainWindow.show()
-    sys.exit(app.exec_())
