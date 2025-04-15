@@ -3,7 +3,7 @@ from configparser import ConfigParser
 import numpy as np
 import polars as pl
 from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QFontMetrics, QIcon, QPixmap
+from PyQt5.QtGui import QFontMetrics, QIcon, QPixmap, QPainter
 from PyQt5.QtSvg import QSvgWidget
 from PyQt5.QtWidgets import (
     QApplication,
@@ -30,17 +30,32 @@ from src.destiny_api import ManifestBrowser
 
 class HoverImage(QLabel):
     def __init__(
-        self, pixmap_path, image_size, tooltip_title, tooltip_body, parent=None
+        self, base_pixmap_path, overlay_pixmap_path=None, image_size=64, tooltip_title="", tooltip_body="", parent=None
     ):
         super().__init__(parent)
-        self.setPixmap(
-            QPixmap(pixmap_path).scaled(image_size, image_size, Qt.KeepAspectRatio)
-        )
+        self.base_pixmap = QPixmap(base_pixmap_path).scaled(image_size, image_size, Qt.KeepAspectRatio)
+        self.overlay_pixmap = QPixmap(overlay_pixmap_path).scaled(image_size, image_size, Qt.KeepAspectRatio) if overlay_pixmap_path else None
+        
         self.setMouseTracking(True)
         self.setToolTip(f"""
                         <b>{tooltip_title}</b><br>{tooltip_body}
                         """)
         self.setStyleSheet("border: 2px solid transparent;")
+
+        self.create_combined_pixmap()
+
+    def create_combined_pixmap(self):
+        combined = QPixmap(self.base_pixmap.size())
+        combined.fill(Qt.transparent)
+
+        painter = QPainter(combined)
+        painter.drawPixmap(0, 0, self.base_pixmap)
+
+        if self.overlay_pixmap:
+            painter.drawPixmap(0, 0, self.overlay_pixmap)
+
+        painter.end()
+        self.setPixmap(combined)
 
     def enterEvent(self, event):
         self.setStyleSheet("border: 2px solid #00aaff;")
@@ -344,7 +359,6 @@ class ArmorCleanerUI(QMainWindow):
         if not os.path.exists("data/icons"):
             os.makedirs("data/icons")
 
-        image_paths = []
 
         image_window_width = self.image_box.parentWidget().width()
         image_window_spacing = self.image_box.spacing()
@@ -352,17 +366,16 @@ class ArmorCleanerUI(QMainWindow):
 
         for idx, hash_value in enumerate(hash_list):
             manifest_browser.get_item_icon_from_hash(
-                hash_value, f"data/icons/{hash_value}.png"
+                hash_value, f"data/icons/{hash_value}"
             )
             item_data = manifest_browser.get_item_details_from_hash(hash_value)
-
-            image_paths.append(f"data/icons/{hash_value}.png")
 
             row = idx // num_cols
             col = idx % num_cols
 
             label = HoverImage(
-                pixmap_path=f"data/icons/{hash_value}.png",
+                base_pixmap_path=f"data/icons/{hash_value}.png",
+                overlay_pixmap_path=f"data/icons/{hash_value}_overlay.png",
                 image_size=64,
                 tooltip_title=item_data["name"],
                 tooltip_body=item_data["flavorText"],
