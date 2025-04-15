@@ -1,140 +1,221 @@
+import os
 import sys
+from configparser import ConfigParser
+import numpy as np
+import polars as pl
+from PyQt5.QtCore import Qt
+from PyQt5.QtGui import QFontMetrics, QIcon, QPixmap
+from PyQt5.QtSvg import QSvgWidget
 from PyQt5.QtWidgets import (
     QApplication,
-    QMainWindow,
-    QWidget,
-    QVBoxLayout,
-    QPushButton,
-    QLabel,
-    QFileDialog,
-    QTextEdit,
     QCheckBox,
-    QHBoxLayout,
-    QSpacerItem,
-    QSizePolicy,
-    QLineEdit,
+    QFileDialog,
     QGridLayout,
-    QSlider,
+    QHBoxLayout,
+    QLabel,
+    QLineEdit,
+    QMainWindow,
     QMessageBox,
+    QPushButton,
+    QSizePolicy,
+    QSlider,
+    QTextEdit,
+    QVBoxLayout,
+    QWidget,
+    QGroupBox,
+    QScrollArea,
 )
 
-from PyQt5.QtSvg import QSvgWidget
-from PyQt5.QtGui import QIcon, QFontMetrics
-from PyQt5.QtCore import Qt
-import polars as pl
-from src.main import do_calculations
-from configparser import ConfigParser
-import os
-
 from src.destiny_api import ManifestBrowser
-
-configur = ConfigParser()
-configur.read("config.ini")
+from src.main import do_calculations
 
 
 class SimpleCSVProcessor(QMainWindow):
     def __init__(self):
         super().__init__()
-        self.initUI()
 
-    def initUI(self):
+        self.configur = ConfigParser()
+        self.configur.read("config.ini")
+
         self.setWindowTitle("Walker's Destiny Armor Tool")
         self.setWindowIcon(QIcon("src/assets/icon.png"))
         self.setGeometry(100, 100, 800, 400)
 
-        self.centralWidget = QWidget()
-        self.setCentralWidget(self.centralWidget)
+        central_widget = QWidget()
+        central_widget.setLayout(self.initUI())
+        self.setCentralWidget(central_widget)
 
-        mainLayout = QHBoxLayout(self.centralWidget)
-        leftLayout = QVBoxLayout()
-        leftLayout.setSpacing(0)
-
-        self.uploadButton = QPushButton("Upload Armor CSV", self)
-        leftLayout.addWidget(self.uploadButton)
-
-        leftLayout.addSpacerItem(
-            QSpacerItem(20, 40, QSizePolicy.Minimum, QSizePolicy.Expanding)
+    def initUI(self):
+        # Get default values from config file
+        default_min_quality = self.configur.getfloat(
+            "values", "DEFAULT_MINIMUM_QUALITY"
+        )
+        default_disc_target = self.configur.getint(
+            "values", "DEFAULT_BOTTOM_STAT_TARGET"
         )
 
-        self.minQualityLabel = QLabel("Minimum Quality", self)
-        leftLayout.addWidget(self.minQualityLabel)
+        main_layout = QVBoxLayout()
+        top_layout = QHBoxLayout()
+        bottom_layout = QHBoxLayout()
 
-        self.minQualityInput = QLineEdit(self)
-        self.minQualityInput.setText(
-            str(configur.getfloat("values", "DEFAULT_MINIMUM_QUALITY"))
-        )
-        leftLayout.addWidget(self.minQualityInput)
+        # Setup left layout and upload button
+        left_layout = QVBoxLayout()
 
-        bottomStatDefault = configur.getint("values", "DEFAULT_BOTTOM_STAT_TARGET")
+        upload_section = QGroupBox()
+        upload_layout = QVBoxLayout()
+        self.upload_button = QPushButton("Upload DIM Armor CSV", self)
 
-        self.bottomStatTargetLabel = QLabel(
-            f"Bottom Stat Target: {bottomStatDefault}", self
-        )
-        leftLayout.addWidget(self.bottomStatTargetLabel)
+        upload_layout.addWidget(self.upload_button)
 
-        self.bottomStatTargetInput = QSlider(Qt.Horizontal, self)
-        self.bottomStatTargetInput.setRange(2, 30)
-        self.bottomStatTargetInput.setTickPosition(QSlider.TickPosition.TicksBelow)
-        self.bottomStatTargetInput.setValue(bottomStatDefault)
-        self.bottomStatTargetInput.valueChanged.connect(self.updateSlider)
-        leftLayout.addWidget(self.bottomStatTargetInput)
+        upload_section.setLayout(upload_layout)
+        upload_section.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
 
-        HUNTER_DIST = dict(configur.items("hunter distributions"))
-        TITAN_DIST = dict(configur.items("titan distributions"))
-        WARLOCK_DIST = dict(configur.items("warlock distributions"))
+        left_layout.addWidget(upload_section)
 
-        gridLayout = QGridLayout()
+        # Create minimum quality option
+        min_quality_section = QGroupBox()
+        min_quality_layout = QVBoxLayout()
 
-        hunter_label = QLabel("Hunter")
-        warlock_label = QLabel("Warlock")
-        titan_label = QLabel("Titan")
+        min_quality_label = QLabel("Minimum Quality")
+        self.min_quality_input = QLineEdit()
+        self.min_quality_input.setText(str(default_min_quality))
 
-        gridLayout.addWidget(hunter_label, 0, 1)
-        gridLayout.addWidget(warlock_label, 0, 2)
-        gridLayout.addWidget(titan_label, 0, 3)
+        min_quality_layout.addWidget(min_quality_label)
+        min_quality_layout.addWidget(self.min_quality_input)
 
-        font_metrics = QFontMetrics(hunter_label.font())
+        min_quality_section.setLayout(min_quality_layout)
+        min_quality_section.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+
+        left_layout.addWidget(min_quality_section)
+
+        # Create slider and label for discipline target values
+        disc_stat_section = QGroupBox()
+        disc_stat_layout = QVBoxLayout()
+
+        self.disc_stat_label = QLabel(f"Discipline Target: {default_disc_target}")
+        self.disc_stat_slider = QSlider(Qt.Horizontal)
+        self.disc_stat_slider.setRange(2, 30)
+        self.disc_stat_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.disc_stat_slider.setValue(default_disc_target)
+
+        disc_stat_layout.addWidget(self.disc_stat_label)
+        disc_stat_layout.addWidget(self.disc_stat_slider)
+
+        disc_stat_section.setLayout(disc_stat_layout)
+        disc_stat_section.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+
+        left_layout.addWidget(disc_stat_section)
+
+        # Generate Checkbox Grid
+        checkbox_section = QGroupBox()
+        checkbox_layout = QGridLayout()
+
+        classes = ["Hunter", "Warlock", "Titan"]
+        for col, label in enumerate(classes):
+            checkbox_layout.addWidget(QLabel(label), 0, col + 1)
+
+        font_metrics = QFontMetrics(QLabel().font())
         text_height = font_metrics.height()
 
-        mobil_path = "src/assets/svg/mobility.svg"
-        recov_path = "src/assets/svg/recovery.svg"
-        resil_path = "src/assets/svg/resilience.svg"
+        icon_paths = [
+            "src/assets/svg/mobility.svg",
+            "src/assets/svg/resilience.svg",
+            "src/assets/svg/recovery.svg",
+        ]
 
-        gridLayout.addLayout(
-            self.make_double_svg_container(mobil_path, resil_path, text_height), 1, 0
-        )
+        stat_pairs = [(0, 1), (0, 2), (1, 2)]
+        for row, (i, j) in enumerate(stat_pairs, start=1):
+            checkbox_layout.addLayout(
+                self.make_double_svg_container(
+                    icon_paths[i], icon_paths[j], text_height
+                ),
+                row,
+                0,
+            )
 
-        gridLayout.addLayout(
-            self.make_double_svg_container(mobil_path, recov_path, text_height), 2, 0
-        )
+        self.checkboxes = [[None for _ in range(3)] for _ in range(3)]
 
-        gridLayout.addLayout(
-            self.make_double_svg_container(resil_path, recov_path, text_height), 3, 0
-        )
+        for x in range(3):
+            for y in range(3):
+                checkbox = QCheckBox()
+                checkbox_layout.addWidget(checkbox, x+1, y+1)
+                self.checkboxes[x][y] = checkbox
+                
+                checkbox.stateChanged.connect(
+                    lambda state, r=x, c=y: self.update_config_from_checkbox(r, c)
+                )
 
-        for x in range(1, 4):
-            for y in range(1, 4):
-                gridLayout.addWidget(QCheckBox(), x, y)
+        self.config_keys = ["mob_res", "mob_rec", "res_rec"]
+        self.class_keys = ["hunter distributions", "warlock distributions", "titan distributions"]
 
-        leftLayout.addLayout(gridLayout)
-        mainLayout.addLayout(leftLayout)
+        
+        for col, class_key in enumerate(self.class_keys):
+            for row, stat_key in enumerate(self.config_keys):
+                value = self.configur.getboolean(class_key, stat_key)
+                self.checkboxes[row][col].setChecked(value)
 
-        self.outputText = QTextEdit(self)
-        mainLayout.addWidget(self.outputText)
+        checkbox_section.setLayout(checkbox_layout)
+        checkbox_section.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
 
-        rightLayout = QVBoxLayout()
-        rightLayout.setSpacing(0)
+        left_layout.addWidget(checkbox_section)
 
-        self.processButton = QPushButton("Run Armor Analysis", self)
-        rightLayout.addWidget(self.processButton)
+        # Set layout options for left layout
+        left_widget = QWidget()
+        left_widget.setLayout(left_layout)
+        left_widget.setSizePolicy(QSizePolicy.Maximum, QSizePolicy.Preferred)
 
-        mainLayout.addLayout(rightLayout)
+        # Create right layout and add widgets
+        right_layout = QVBoxLayout()
+        
+        image_container = QWidget()
+        self.image_box = QGridLayout()
+        image_container.setLayout(self.image_box)
 
-        self.uploadButton.clicked.connect(self.uploadFile)
-        self.processButton.clicked.connect(self.processCSV)
+        scroll_area = QScrollArea()
+        scroll_area.setWidget(image_container)
+        scroll_area.setWidgetResizable(True)
+        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        
+        run_button = QPushButton("Clean Armor")
+        right_layout.addWidget(scroll_area)
+        right_layout.addWidget(run_button)
+
+        # Set right layout options
+        right_widget = QWidget()
+        right_widget.setLayout(right_layout)
+        right_widget.setSizePolicy(QSizePolicy.Expanding, QSizePolicy.Preferred)
+
+        # combine everything
+        top_layout.addWidget(left_widget)
+        top_layout.addWidget(right_widget)
+
+        top_widget = QWidget()
+        top_widget.setLayout(top_layout)
+        top_widget.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Expanding)
+
+        main_layout.addWidget(top_widget)
+
+        self.output_box = QTextEdit()
+        self.output_box.setFixedHeight(text_height * 2)
+        self.output_box.setReadOnly(True)
+
+        bottom_layout.addWidget(self.output_box)
+
+        bottom_widget = QWidget()
+        bottom_widget.setLayout(bottom_layout)
+        bottom_widget.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+
+        main_layout.addWidget(bottom_widget)
+
+        # set connections
+        self.min_quality_input.editingFinished.connect(self.update_min_quality_config)
+        self.disc_stat_slider.valueChanged.connect(self.update_disc_slider)
+        self.upload_button.clicked.connect(self.upload_file)
+        run_button.clicked.connect(self.process_file)
+
+        return main_layout
 
     def make_double_svg_container(self, path_1, path_2, size):
-        # TODO: Finish later.
         layout = QHBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
 
@@ -144,37 +225,52 @@ class SimpleCSVProcessor(QMainWindow):
         icon_1.setFixedSize(size, size)
         icon_2.setFixedSize(size, size)
         layout.addWidget(icon_1)
-        # layout.addWidget(QLabel(" + "))
         layout.addWidget(icon_2)
 
         return layout
+    
+    def update_min_quality_config(self):
+        value = self.min_quality_input.text()
+
+        try:
+            float_value = float(value)  # validate input
+            self.configur.set("values", "DEFAULT_MINIMUM_QUALITY", str(float_value))
+            with open("config.ini", "w") as configfile:
+                self.configur.write(configfile)
+        except ValueError:
+            # Optionally show a warning dialog or reset the field
+            print("Invalid input: must be a number")
+    
+    def update_config_from_checkbox(self, row, col):
+        section = self.class_keys[col]
+        key = self.config_keys[row]
+        value = self.checkboxes[row][col].isChecked()
+
+        self.configur.set(section, key, str(value))
+        with open("config.ini", "w") as configfile:
+            self.configur.write(configfile)
 
     def extract_grid_values(self):
-        hunter_dist = {}
-        warlock_dist = {}
-        titan_dist = {}
-
-        for (cat1, cat2), checkbox in self.checkbox_dict.items():
-            config_key = "_".join(cat2.lower().split(" + "))
-            value = str(checkbox.isChecked())
-
-            if cat1.lower() == "hunter":
-                hunter_dist[config_key] = value
-            elif cat1.lower() == "warlock":
-                warlock_dist[config_key] = value
-            elif cat1.lower() == "titan":
-                titan_dist[config_key] = value
-
-        return {
-            "hunter distributions": hunter_dist,
-            "warlock distributions": warlock_dist,
-            "titan distributions": titan_dist,
+        grid_values = {
+            "hunter distributions": {},
+            "warlock distributions": {},
+            "titan distributions": {},
         }
 
-    def updateSlider(self, value):
-        self.bottomStatTargetLabel.setText(f"Bottom Stat Target: {value}")
+        for col, class_key in enumerate(self.class_keys):
+            for row, stat_key in enumerate(self.config_keys):
+                checkbox = self.checkboxes[row][col]
+                grid_values[class_key][stat_key] = checkbox.isChecked()
+        
+        return grid_values
 
-    def uploadFile(self):
+    def update_disc_slider(self, value):
+        self.disc_stat_label.setText(f"Discipline Target: {value}")
+        self.configur.set("values", "DEFAULT_BOTTOM_STAT_TARGET", str(value))
+        with open("config.ini", "w") as configfile:
+            self.configur.write(configfile)
+
+    def upload_file(self):
         options = QFileDialog.Options()
         options |= QFileDialog.ReadOnly
         self.fileName, _ = QFileDialog.getOpenFileName(
@@ -185,18 +281,24 @@ class SimpleCSVProcessor(QMainWindow):
             options=options,
         )
         if self.fileName:
-            self.outputText.setText(f"File selected: {self.fileName}")
+            self.output_box.setText(f"File selected: {self.fileName}")
 
-    def processCSV(self):
+    def process_file(self):
         if not hasattr(self, "fileName") or not self.fileName:
             # Display an error message to the user
             QMessageBox.warning(self, "Error", "No file selected.")
             return
+        
+        self.output_box.setText("Checking armor")
+
+        for i in reversed(range(self.image_box.count())): 
+            self.image_box.itemAt(i).widget().setParent(None)
+
         # Read the CSV file
         df = pl.read_csv(self.fileName)
 
-        min_quality = self.minQualityInput.text()
-        bottom_stat_target = self.bottomStatTargetInput.value()
+        min_quality = self.min_quality_input.text()
+        bottom_stat_target = self.disc_stat_slider.value()
 
         distributions = self.extract_grid_values()
 
@@ -207,14 +309,36 @@ class SimpleCSVProcessor(QMainWindow):
             distributions,
         )
 
-        # THIS IS TEMPORARY
+        # NOTE: THIS IS TEMPORARY
+        self.output_box.setText("Downloading Armor Details")
+
         manifest_browser = ManifestBrowser()
 
-        for idx, hash_value in enumerate(hash_list):
-            manifest_browser.get_item_icon_from_hash(hash_value, f"icons/{idx}.png")
+        if not os.path.exists("data/icons"):
+            os.makedirs("data/icons")
 
-        # Set the output string to the text edit
-        self.outputText.setText(text_result)
+        image_paths = []
+
+        image_window_width = self.image_box.parentWidget().width()
+        image_window_spacing = self.image_box.spacing()
+        num_cols = int(np.floor(image_window_width / (64+ image_window_spacing)))
+
+        for idx, hash_value in enumerate(hash_list):
+            manifest_browser.get_item_icon_from_hash(
+                hash_value, f"data/icons/{hash_value}.png"
+            )
+            image_paths.append(f"data/icons/{hash_value}.png")
+
+            row = idx // num_cols
+            col = idx % num_cols
+
+            label = QLabel()
+            pixmap = QPixmap(f"data/icons/{hash_value}.png")
+            label.setPixmap(pixmap.scaled(64, 64))
+            self.image_box.addWidget(label, row, col)
+
+        self.output_box.setText(f"Found {len(hash_list)} Armor Pieces. DIM query copied to clipboard.")
+        QApplication.clipboard().setText(text_result)
 
 
 if __name__ == "__main__":

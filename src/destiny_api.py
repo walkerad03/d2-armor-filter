@@ -3,11 +3,14 @@ import sqlite3
 import zipfile
 import os
 import json
+from dotenv import load_dotenv
 
 
 class ManifestBrowser:
     def __init__(self) -> None:
-        self.BUNGIE_API_KEY = ""
+        load_dotenv()
+
+        self.BUNGIE_API_KEY = os.getenv("BUNGIE_API_KEY")
         self.MANIFEST_STORAGE_DIR = "data/manifest/"
         self.headers = {"X-API-KEY": self.BUNGIE_API_KEY}
 
@@ -64,7 +67,10 @@ class ManifestBrowser:
 
         if len(items) > 1:
             raise ValueError(f"db call returned more than 1 result: {len(items)}")
-
+        
+        if os.path.isfile(file_name):
+            return
+        
         json_data = json.loads(items[0][1])
         icon_url = f"https://www.bungie.net{json_data['displayProperties']['icon']}"
         query_params = {"downloadFormat": "png"}
