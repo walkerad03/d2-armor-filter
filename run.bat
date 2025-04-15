@@ -1,3 +1,1 @@
-@echo off
-
-uv run test.py
+uv run main.py
