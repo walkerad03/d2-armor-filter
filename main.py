@@ -70,7 +70,10 @@ def do_calculations(armor_file, min_quality, bottom_stat_target, distributions):
 
 
 def main():
+    base_dir = os.path.dirname(os.path.abspath(__file__))
+    config_path = os.path.join(base_dir, "config.ini")
     configur = ConfigParser()
+    configur.read(config_path)
 
     os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
     os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "1"

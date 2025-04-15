@@ -71,7 +71,6 @@ class ArmorCleanerUI(QMainWindow):
         super().__init__()
 
         self.configur = config_parser
-        self.configur.read("config.ini")
 
         # NOTE: Temporary
         self.do_calculations = do_calculations
