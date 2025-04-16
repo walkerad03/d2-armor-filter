@@ -102,6 +102,7 @@ class ArmorCleanerUI(QMainWindow):
         upload_section = QGroupBox()
         upload_layout = QVBoxLayout()
         self.upload_button = QPushButton("Upload DIM Armor CSV", self)
+        self.upload_button.setToolTip("Download your CSV from DIM by going to\n`settings > spreadsheets > armor`")
 
         upload_layout.addWidget(self.upload_button)
 
@@ -117,6 +118,7 @@ class ArmorCleanerUI(QMainWindow):
         min_quality_label = QLabel("Minimum Quality")
         self.min_quality_input = QLineEdit()
         self.min_quality_input.setText(str(default_min_quality))
+        self.min_quality_input.setToolTip("Most sensitive option. Lower min quality will be more restrictive.\n<5=very relaxed\n<2=somewhat strict\n<1=extremely strict")
 
         min_quality_layout.addWidget(min_quality_label)
         min_quality_layout.addWidget(self.min_quality_input)
@@ -135,6 +137,7 @@ class ArmorCleanerUI(QMainWindow):
         self.disc_stat_slider.setRange(2, 30)
         self.disc_stat_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
         self.disc_stat_slider.setValue(default_disc_target)
+        self.disc_stat_slider.setToolTip("Base discipline above this level will not be penalized by the filter")
 
         disc_stat_layout.addWidget(self.disc_stat_label)
         disc_stat_layout.addWidget(self.disc_stat_slider)
@@ -197,6 +200,7 @@ class ArmorCleanerUI(QMainWindow):
 
         checkbox_section.setLayout(checkbox_layout)
         checkbox_section.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        checkbox_section.setToolTip("Check any bottom bucket stat combos you wish to keep")
 
         left_layout.addWidget(checkbox_section)
 
@@ -218,6 +222,7 @@ class ArmorCleanerUI(QMainWindow):
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
         run_button = QPushButton("Clean Armor")
+        run_button.setToolTip("Press after setting all other settings")
         right_layout.addWidget(scroll_area)
         right_layout.addWidget(run_button)
 
