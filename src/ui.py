@@ -32,10 +32,17 @@ class HoverImage(QLabel):
         image_size=64,
         tooltip_title="",
         tooltip_body="",
+        tooltip_stats="",
+        armor_id: str =None,
         parent=None,
     ):
         super().__init__(parent)
         self.base_pixmap_path = base_pixmap_path
+        self.armor_id = armor_id
+
+        self.tooltip_title = tooltip_title
+        self.tooltip_body = tooltip_body
+        self.tooltip_stats = tooltip_stats
 
         self.image_size = image_size
         self.base_pixmap = QPixmap(base_pixmap_path).scaled(
@@ -50,8 +57,9 @@ class HoverImage(QLabel):
         )
 
         self.setMouseTracking(True)
+        self.setCursor(Qt.PointingHandCursor)
         self.setToolTip(f"""
-                        <b>{tooltip_title}</b><br>{tooltip_body}
+                        <b>{tooltip_title}</b><br>{tooltip_body}<br>{tooltip_stats}
                         """)
         self.setStyleSheet("border: 2px solid transparent;")
 
@@ -77,6 +85,9 @@ class HoverImage(QLabel):
 
     def enterEvent(self, event):
         self.setStyleSheet("border: 2px solid #00aaff;")
+        self.setToolTip(f"""
+                        <b>{self.tooltip_title}</b><br>{self.tooltip_body}<br>{self.tooltip_stats}
+                        """)
         super().enterEvent(event)
 
     def leaveEvent(self, event):
@@ -88,10 +99,18 @@ class HoverImage(QLabel):
         self.setFixedSize(size, size)
         super().resizeEvent(event)
 
+    def mousePressEvent(self, event):
+        if event.button() == Qt.LeftButton and self.armor_id:
+            QApplication.clipboard().setText("id:" + self.armor_id)
+            self.setToolTip(f"Copied ID: <b>{self.armor_id}</b>")
+            self.setStyleSheet("border: 2px solid #00ffaa;")
+        super().mousePressEvent(event)
+
 
 class AppUI(QMainWindow):
     upload_triggered = pyqtSignal(str)
     process_triggered = pyqtSignal(float, int, dict)
+    copy_query_triggered = pyqtSignal()
 
     def __init__(self, config_parser: ConfigParser):
         super().__init__()
@@ -256,6 +275,19 @@ class AppUI(QMainWindow):
 
         left_layout.addWidget(ignore_tags_section)
 
+        copy_all_section = QGroupBox()
+        copy_all_layout = QHBoxLayout()
+
+        self.copy_all_button = QPushButton("Copy to Clipboard")
+        
+        copy_all_section.setToolTip("Create a DIM query to highlight everything at once.\nClick on the tiles to copy individual IDs.")
+        copy_all_layout.addWidget(self.copy_all_button)
+
+        copy_all_section.setLayout(copy_all_layout)
+        copy_all_section.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+
+        left_layout.addWidget(copy_all_section)
+
         # Set layout options for left layout
         left_widget = QWidget()
         left_widget.setLayout(left_layout)
@@ -311,6 +343,7 @@ class AppUI(QMainWindow):
         self.upload_button.clicked.connect(self.trigger_upload)
         self.run_button.clicked.connect(self.trigger_process)
         self.ignore_tags_toggle.clicked.connect(self.update_ignore_tags)
+        self.copy_all_button.clicked.connect(self.copy_query_to_clipboard)
 
         return main_layout
 
@@ -327,6 +360,10 @@ class AppUI(QMainWindow):
         layout.addWidget(icon_2)
 
         return layout
+    
+    def copy_query_to_clipboard(self):
+        self.copy_query_triggered.emit()
+
 
     def update_min_quality_config(self):
         value = self.min_quality_input.text()
