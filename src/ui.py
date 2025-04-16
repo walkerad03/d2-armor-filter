@@ -329,6 +329,8 @@ class AppUI(QMainWindow):
         self.output_box.setFixedHeight(text_height * 2)
         self.output_box.setReadOnly(True)
 
+        self.output_box.setText("Welcome to Walker's Armor Cleaner! Select a DIM Armor CSV to begin.")
+
         bottom_layout.addWidget(self.output_box)
 
         bottom_widget = QWidget()
