@@ -33,6 +33,7 @@ class HoverImage(QLabel):
         self, base_pixmap_path, overlay_pixmap_path=None, image_size=64, tooltip_title="", tooltip_body="", parent=None
     ):
         super().__init__(parent)
+        self.image_size = image_size
         self.base_pixmap = QPixmap(base_pixmap_path).scaled(image_size, image_size, Qt.KeepAspectRatio)
         self.overlay_pixmap = QPixmap(overlay_pixmap_path).scaled(image_size, image_size, Qt.KeepAspectRatio) if overlay_pixmap_path else None
         
@@ -64,6 +65,11 @@ class HoverImage(QLabel):
     def leaveEvent(self, event):
         self.setStyleSheet("border: 2px solid transparent;")
         super().leaveEvent(event)
+
+    def resizeEvent(self, event):
+        size = self.image_size
+        self.setFixedSize(size, size)
+        super().resizeEvent(event)
 
 
 class ArmorCleanerUI(QMainWindow):
