@@ -68,6 +68,8 @@ class ManifestBrowser:
         if len(items) > 1:
             raise ValueError(f"db call returned more than 1 result: {len(items)}")
         
+        if len(items) == 0:
+            raise ValueError(f"No items found: {id_val}")
         json_data = json.loads(items[0][1])
         
         item_data = {}
@@ -89,21 +91,18 @@ class ManifestBrowser:
         if len(items) > 1:
             raise ValueError(f"db call returned more than 1 result: {len(items)}")
         
-        if os.path.isfile(file_name):
-            return
-        
         json_data = json.loads(items[0][1])
         icon_url = f"https://www.bungie.net{json_data['displayProperties']['icon']}"
         overlay_url = f"https://www.bungie.net{json_data['iconWatermark']}"
         query_params = {"downloadFormat": "png"}
         res = requests.get(icon_url, params=query_params)
 
-        with open(f"{file_name}.png", mode="wb") as file:
+        with open(file_name, mode="wb") as file:
             file.write(res.content)
 
         res = requests.get(overlay_url, params=query_params)
 
-        with open(f"{file_name}_overlay.png", mode="wb") as file:
+        with open(f"{file_name.removesuffix(".png")}_overlay.png", mode="wb") as file:
             file.write(res.content)
 
     def get_table_names(self) -> list[str]:

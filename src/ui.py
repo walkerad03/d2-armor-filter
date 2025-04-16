@@ -1,42 +1,54 @@
-import os
 from configparser import ConfigParser
-import numpy as np
-import polars as pl
-from PyQt5.QtCore import Qt
-from PyQt5.QtGui import QFontMetrics, QIcon, QPixmap, QPainter
+
+from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtGui import QFontMetrics, QIcon, QPainter, QPixmap
 from PyQt5.QtSvg import QSvgWidget
 from PyQt5.QtWidgets import (
     QApplication,
     QCheckBox,
     QFileDialog,
     QGridLayout,
+    QGroupBox,
     QHBoxLayout,
     QLabel,
     QLineEdit,
     QMainWindow,
     QMessageBox,
     QPushButton,
+    QScrollArea,
     QSizePolicy,
     QSlider,
     QTextEdit,
     QVBoxLayout,
     QWidget,
-    QGroupBox,
-    QScrollArea,
 )
-
-from src.destiny_api import ManifestBrowser
 
 
 class HoverImage(QLabel):
     def __init__(
-        self, base_pixmap_path, overlay_pixmap_path=None, image_size=64, tooltip_title="", tooltip_body="", parent=None
+        self,
+        base_pixmap_path,
+        overlay_pixmap_path=None,
+        image_size=64,
+        tooltip_title="",
+        tooltip_body="",
+        parent=None,
     ):
         super().__init__(parent)
+        self.base_pixmap_path = base_pixmap_path
+
         self.image_size = image_size
-        self.base_pixmap = QPixmap(base_pixmap_path).scaled(image_size, image_size, Qt.KeepAspectRatio)
-        self.overlay_pixmap = QPixmap(overlay_pixmap_path).scaled(image_size, image_size, Qt.KeepAspectRatio) if overlay_pixmap_path else None
-        
+        self.base_pixmap = QPixmap(base_pixmap_path).scaled(
+            image_size, image_size, Qt.KeepAspectRatio
+        )
+        self.overlay_pixmap = (
+            QPixmap(overlay_pixmap_path).scaled(
+                image_size, image_size, Qt.KeepAspectRatio
+            )
+            if overlay_pixmap_path
+            else None
+        )
+
         self.setMouseTracking(True)
         self.setToolTip(f"""
                         <b>{tooltip_title}</b><br>{tooltip_body}
@@ -46,6 +58,11 @@ class HoverImage(QLabel):
         self.create_combined_pixmap()
 
     def create_combined_pixmap(self):
+        if self.base_pixmap.isNull():
+            print("Error: base pixmap failed to load")
+            print(f"Pixmap Path: {self.base_pixmap_path}")
+            return
+
         combined = QPixmap(self.base_pixmap.size())
         combined.fill(Qt.transparent)
 
@@ -72,14 +89,14 @@ class HoverImage(QLabel):
         super().resizeEvent(event)
 
 
-class ArmorCleanerUI(QMainWindow):
-    def __init__(self, config_parser: ConfigParser, do_calculations):
+class AppUI(QMainWindow):
+    upload_triggered = pyqtSignal(str)
+    process_triggered = pyqtSignal(float, int, dict)
+
+    def __init__(self, config_parser: ConfigParser):
         super().__init__()
 
         self.configur = config_parser
-
-        # NOTE: Temporary
-        self.do_calculations = do_calculations
 
         self.setWindowTitle("Walker's Destiny Armor Tool")
         self.setWindowIcon(QIcon("src/assets/icon.png"))
@@ -99,9 +116,7 @@ class ArmorCleanerUI(QMainWindow):
         default_disc_target = self.configur.getint(
             "values", "DEFAULT_BOTTOM_STAT_TARGET"
         )
-        default_ignore_tags_value = self.configur.getboolean(
-            "values", "IGNORE_TAGS"
-        )
+        default_ignore_tags_value = self.configur.getboolean("values", "IGNORE_TAGS")
 
         main_layout = QVBoxLayout()
         top_layout = QHBoxLayout()
@@ -113,7 +128,9 @@ class ArmorCleanerUI(QMainWindow):
         upload_section = QGroupBox()
         upload_layout = QVBoxLayout()
         self.upload_button = QPushButton("Upload DIM Armor CSV", self)
-        self.upload_button.setToolTip("Download your CSV from DIM by going to\n`settings > spreadsheets > armor`")
+        self.upload_button.setToolTip(
+            "Download your CSV from DIM by going to\n`settings > spreadsheets > armor`"
+        )
 
         upload_layout.addWidget(self.upload_button)
 
@@ -129,7 +146,9 @@ class ArmorCleanerUI(QMainWindow):
         min_quality_label = QLabel("Minimum Quality")
         self.min_quality_input = QLineEdit()
         self.min_quality_input.setText(str(default_min_quality))
-        self.min_quality_input.setToolTip("Most sensitive option. Lower min quality will be more restrictive.\n<5=very relaxed\n<2=somewhat strict\n<1=extremely strict")
+        min_quality_section.setToolTip(
+            "Most sensitive option. Lower min quality will be more restrictive.\n<5=very relaxed\n<2=somewhat strict\n<1=extremely strict"
+        )
 
         min_quality_layout.addWidget(min_quality_label)
         min_quality_layout.addWidget(self.min_quality_input)
@@ -148,7 +167,9 @@ class ArmorCleanerUI(QMainWindow):
         self.disc_stat_slider.setRange(2, 30)
         self.disc_stat_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
         self.disc_stat_slider.setValue(default_disc_target)
-        self.disc_stat_slider.setToolTip("Base discipline above this level will not be penalized by the filter")
+        disc_stat_section.setToolTip(
+            "Base discipline above this level will not be penalized by the filter"
+        )
 
         disc_stat_layout.addWidget(self.disc_stat_label)
         disc_stat_layout.addWidget(self.disc_stat_slider)
@@ -211,7 +232,9 @@ class ArmorCleanerUI(QMainWindow):
 
         checkbox_section.setLayout(checkbox_layout)
         checkbox_section.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
-        checkbox_section.setToolTip("Check any bottom bucket stat combos you wish to keep")
+        checkbox_section.setToolTip(
+            "Check any bottom bucket stat combos you wish to keep"
+        )
 
         left_layout.addWidget(checkbox_section)
 
@@ -222,7 +245,7 @@ class ArmorCleanerUI(QMainWindow):
         ignore_tags_label = QLabel("Ignore Tags")
         self.ignore_tags_toggle = QCheckBox()
         self.ignore_tags_toggle.setChecked(default_ignore_tags_value)
-        
+
         ignore_tags_section.setToolTip("Filter items tagged as Archive or Infuse")
 
         ignore_tags_layout.addWidget(ignore_tags_label)
@@ -232,7 +255,6 @@ class ArmorCleanerUI(QMainWindow):
         ignore_tags_section.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
 
         left_layout.addWidget(ignore_tags_section)
-
 
         # Set layout options for left layout
         left_widget = QWidget()
@@ -251,10 +273,10 @@ class ArmorCleanerUI(QMainWindow):
         scroll_area.setWidgetResizable(True)
         scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
 
-        run_button = QPushButton("Clean Armor")
-        run_button.setToolTip("Press after setting all other settings")
+        self.run_button = QPushButton("Clean Armor")
+        self.run_button.setToolTip("Press after setting all other settings")
         right_layout.addWidget(scroll_area)
-        right_layout.addWidget(run_button)
+        right_layout.addWidget(self.run_button)
 
         # Set right layout options
         right_widget = QWidget()
@@ -286,8 +308,8 @@ class ArmorCleanerUI(QMainWindow):
         # set connections
         self.min_quality_input.editingFinished.connect(self.update_min_quality_config)
         self.disc_stat_slider.valueChanged.connect(self.update_disc_slider)
-        self.upload_button.clicked.connect(self.upload_file)
-        run_button.clicked.connect(self.process_file)
+        self.upload_button.clicked.connect(self.trigger_upload)
+        self.run_button.clicked.connect(self.trigger_process)
         self.ignore_tags_toggle.clicked.connect(self.update_ignore_tags)
 
         return main_layout
@@ -354,77 +376,55 @@ class ArmorCleanerUI(QMainWindow):
         with open("config.ini", "w") as configfile:
             self.configur.write(configfile)
 
-    def upload_file(self):
+    def trigger_upload(self):
         options = QFileDialog.Options()
         options |= QFileDialog.ReadOnly
-        self.fileName, _ = QFileDialog.getOpenFileName(
+        filename, _ = QFileDialog.getOpenFileName(
             self,
             "Open CSV File",
             "",
             "CSV Files (*.csv);;All Files (*)",
             options=options,
         )
-        if self.fileName:
-            self.output_box.setText(f"File selected: {self.fileName}")
+        if filename:
+            self.upload_triggered.emit(filename)
 
-    def process_file(self):
-        if not hasattr(self, "fileName") or not self.fileName:
-            # Display an error message to the user
-            QMessageBox.warning(self, "Error", "No file selected.")
-            return
-
-        self.output_box.setText("Checking armor")
-
-        for i in reversed(range(self.image_box.count())):
-            self.image_box.itemAt(i).widget().setParent(None)
-
-        # Read the CSV file
-        df = pl.read_csv(self.fileName)
-
-        min_quality = self.min_quality_input.text()
-        bottom_stat_target = self.disc_stat_slider.value()
-
+    def trigger_process(self):
+        min_quality = float(self.min_quality_input.text())
+        bottom_stat_target = int(self.disc_stat_slider.value())
         distributions = self.extract_grid_values()
 
-        text_result, hash_list = self.do_calculations(
-            df,
-            min_quality,
-            bottom_stat_target,
-            distributions,
+        self.process_triggered.emit(min_quality, bottom_stat_target, distributions)
+
+    def show_warning(self, title: str = "", body: str = ""):
+        QMessageBox.warning(self, title, body)
+
+    def add_to_photo_grid(self, image_path: str, overlay_path: str, item_data: dict):
+        NUM_COLS = 7
+
+        idx = self.image_box.count()
+        row = idx // NUM_COLS
+        col = idx % NUM_COLS
+
+        label = HoverImage(
+            base_pixmap_path=image_path,
+            overlay_pixmap_path=overlay_path,
+            image_size=64,
+            tooltip_title=item_data["name"],
+            tooltip_body=item_data["flavorText"],
         )
-
-        # NOTE: THIS IS TEMPORARY
-        self.output_box.setText("Downloading Armor Details")
-
-        manifest_browser = ManifestBrowser()
-
-        if not os.path.exists("data/icons"):
-            os.makedirs("data/icons")
-
-
-        image_window_width = self.image_box.parentWidget().width()
-        image_window_spacing = self.image_box.spacing()
-        num_cols = int(np.floor(image_window_width / (64 + image_window_spacing)))
-
-        for idx, hash_value in enumerate(hash_list):
-            manifest_browser.get_item_icon_from_hash(
-                hash_value, f"data/icons/{hash_value}"
-            )
-            item_data = manifest_browser.get_item_details_from_hash(hash_value)
-
-            row = idx // num_cols
-            col = idx % num_cols
-
-            label = HoverImage(
-                base_pixmap_path=f"data/icons/{hash_value}.png",
-                overlay_pixmap_path=f"data/icons/{hash_value}_overlay.png",
-                image_size=64,
-                tooltip_title=item_data["name"],
-                tooltip_body=item_data["flavorText"],
-            )
-            self.image_box.addWidget(label, row, col)
+        self.image_box.addWidget(label, row, col)
 
         self.output_box.setText(
-            f"Found {len(hash_list)} Armor Pieces. DIM query copied to clipboard."
+            f"Found {idx} Armor Pieces. DIM query copied to clipboard."
         )
-        QApplication.clipboard().setText(text_result)
+
+    def set_process_enabled_state(self, enabled: bool):
+        self.run_button.setEnabled(enabled)
+
+    def set_clipboard_contents(self, to_copy: str):
+        QApplication.clipboard().setText(to_copy)
+
+    def clear_photo_grid(self):
+        for i in reversed(range(self.image_box.count())):
+            self.image_box.itemAt(i).widget().setParent(None)
