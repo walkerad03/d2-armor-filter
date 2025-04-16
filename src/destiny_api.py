@@ -1,8 +1,9 @@
-import requests
+import json
+import os
 import sqlite3
 import zipfile
-import os
-import json
+
+import requests
 from dotenv import load_dotenv
 
 
@@ -54,7 +55,7 @@ class ManifestBrowser:
             raise ValueError(f"db call returned more than 1 result: {len(items)}")
 
         return items
-    
+
     def get_item_details_from_hash(self, hash_value: int):
         id_val = int(hash_value)
         if (id_val & (1 << (32 - 1))) != 0:
@@ -67,15 +68,15 @@ class ManifestBrowser:
 
         if len(items) > 1:
             raise ValueError(f"db call returned more than 1 result: {len(items)}")
-        
+
         if len(items) == 0:
             raise ValueError(f"No items found: {id_val}")
         json_data = json.loads(items[0][1])
-        
+
         item_data = {}
-        item_data["name"] = json_data['displayProperties']["name"]
+        item_data["name"] = json_data["displayProperties"]["name"]
         item_data["flavorText"] = json_data["flavorText"]
-        
+
         return item_data
 
     def get_item_icon_from_hash(self, hash_value: int, file_name: str):
@@ -90,7 +91,7 @@ class ManifestBrowser:
 
         if len(items) > 1:
             raise ValueError(f"db call returned more than 1 result: {len(items)}")
-        
+
         json_data = json.loads(items[0][1])
         icon_url = f"https://www.bungie.net{json_data['displayProperties']['icon']}"
         overlay_url = f"https://www.bungie.net{json_data['iconWatermark']}"
@@ -102,7 +103,7 @@ class ManifestBrowser:
 
         res = requests.get(overlay_url, params=query_params)
 
-        with open(f"{file_name.removesuffix(".png")}_overlay.png", mode="wb") as file:
+        with open(f"{file_name.removesuffix('.png')}_overlay.png", mode="wb") as file:
             file.write(res.content)
 
     def get_table_names(self) -> list[str]:

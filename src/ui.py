@@ -33,7 +33,7 @@ class HoverImage(QLabel):
         tooltip_title="",
         tooltip_body="",
         tooltip_stats="",
-        armor_id: str =None,
+        armor_id: str = None,
         parent=None,
     ):
         super().__init__(parent)
@@ -279,8 +279,10 @@ class AppUI(QMainWindow):
         copy_all_layout = QHBoxLayout()
 
         self.copy_all_button = QPushButton("Copy to Clipboard")
-        
-        copy_all_section.setToolTip("Create a DIM query to highlight everything at once.\nClick on the tiles to copy individual IDs.")
+
+        copy_all_section.setToolTip(
+            "Create a DIM query to highlight everything at once.\nClick on the tiles to copy individual IDs."
+        )
         copy_all_layout.addWidget(self.copy_all_button)
 
         copy_all_section.setLayout(copy_all_layout)
@@ -329,7 +331,9 @@ class AppUI(QMainWindow):
         self.output_box.setFixedHeight(text_height * 2)
         self.output_box.setReadOnly(True)
 
-        self.output_box.setText("Welcome to Walker's Armor Cleaner! Select a DIM Armor CSV to begin.")
+        self.output_box.setText(
+            "Welcome to Walker's Armor Cleaner! Select a DIM Armor CSV to begin."
+        )
 
         bottom_layout.addWidget(self.output_box)
 
@@ -362,10 +366,9 @@ class AppUI(QMainWindow):
         layout.addWidget(icon_2)
 
         return layout
-    
+
     def copy_query_to_clipboard(self):
         self.copy_query_triggered.emit()
-
 
     def update_min_quality_config(self):
         value = self.min_quality_input.text()

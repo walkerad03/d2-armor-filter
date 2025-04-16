@@ -1,9 +1,12 @@
-from PyQt5.QtCore import QObject, pyqtSignal, QRunnable, pyqtSlot
 import os
+
+from PyQt5.QtCore import QObject, QRunnable, pyqtSignal, pyqtSlot
+
 
 class IconLoaderSignals(QObject):
     item_loaded = pyqtSignal(str, str, dict)
     finished = pyqtSignal(str)
+
 
 class IconLoaderRunnable(QRunnable):
     def __init__(self, hash_value, api):

@@ -6,21 +6,22 @@ class ArmorFilter:
         pass
 
     def calculate_decays(
-            self,
-            df: pl.DataFrame,
-            bottom_stat_target: int,
-            hunter_dist,
-            titan_dist,
-            warlock_dist,
-            ignore_tags: bool,
-            always_keep_highest_power: bool,
-        ) -> pl.DataFrame:
+        self,
+        df: pl.DataFrame,
+        bottom_stat_target: int,
+        hunter_dist,
+        titan_dist,
+        warlock_dist,
+        ignore_tags: bool,
+        always_keep_highest_power: bool,
+    ) -> pl.DataFrame:
         df = df.filter(
             ~pl.col("Type").is_in(["Titan Mark", "Warlock Bond", "Hunter Cloak"])
         )
         if not ignore_tags:
             df = df.filter(
-                pl.col("Tag").is_in(["archive", "infuse"]).not_() | pl.col("Tag").is_null()
+                pl.col("Tag").is_in(["archive", "infuse"]).not_()
+                | pl.col("Tag").is_null()
             )
 
         # Calculate "Top Bin Gap" and clip to zero
@@ -86,7 +87,11 @@ class ArmorFilter:
 
         # First, calculate "Top Decay"
         df = df.with_columns(
-            [((pl.col("Top Gap") / 7.0) + (pl.col("Top Bin Gap") / 3.0)).alias("Top Decay")]
+            [
+                ((pl.col("Top Gap") / 7.0) + (pl.col("Top Bin Gap") / 3.0)).alias(
+                    "Top Decay"
+                )
+            ]
         )
 
         # Then, calculate "Quality Decay" using the newly created "Top Decay" column
@@ -136,11 +141,24 @@ class ArmorFilter:
             .drop("quality_rank")
         )
 
-        result = result.drop(['Top Bin Gap', 'Bottom Bin Gap', 'Mob Res Gap', 'Mob Rec Gap', 'Res Rec Gap', 'Top Gap', 'Bottom Quality', 'Top Decay'])
+        result = result.drop(
+            [
+                "Top Bin Gap",
+                "Bottom Bin Gap",
+                "Mob Res Gap",
+                "Mob Rec Gap",
+                "Res Rec Gap",
+                "Top Gap",
+                "Bottom Quality",
+                "Top Decay",
+            ]
+        )
 
         return result
 
-    def find_low_quality_armor(self, df: pl.DataFrame, min_quality: float) -> pl.DataFrame:
+    def find_low_quality_armor(
+        self, df: pl.DataFrame, min_quality: float
+    ) -> pl.DataFrame:
         seasonal_mods_to_exclude = [
             "vaultofglass",
             "vowofthedisciple",
@@ -167,7 +185,18 @@ class ArmorFilter:
             & (pl.col("Quality Decay") >= min_quality)
         )
 
-        armor_to_delete = armor_to_delete.drop(['Top Bin Gap', 'Bottom Bin Gap', 'Mob Res Gap', 'Mob Rec Gap', 'Res Rec Gap', 'Top Gap', 'Bottom Quality', 'Top Decay'])
+        armor_to_delete = armor_to_delete.drop(
+            [
+                "Top Bin Gap",
+                "Bottom Bin Gap",
+                "Mob Res Gap",
+                "Mob Rec Gap",
+                "Res Rec Gap",
+                "Top Gap",
+                "Bottom Quality",
+                "Top Decay",
+            ]
+        )
 
         return armor_to_delete
 
@@ -236,14 +265,27 @@ class ArmorFilter:
             subset=["Id"], keep="first"
         )
 
-        final_df = final_df.drop(['Top Bin Gap', 'Bottom Bin Gap', 'Mob Res Gap', 'Mob Rec Gap', 'Res Rec Gap', 'Top Gap', 'Bottom Quality', 'Top Decay'])
+        final_df = final_df.drop(
+            [
+                "Top Bin Gap",
+                "Bottom Bin Gap",
+                "Mob Res Gap",
+                "Mob Rec Gap",
+                "Res Rec Gap",
+                "Top Gap",
+                "Bottom Quality",
+                "Top Decay",
+            ]
+        )
 
         return final_df
 
     def find_exotics(self, df: pl.DataFrame, min_quality: float) -> pl.DataFrame:
         exotics_df = df.filter(pl.col("Tier") == "Exotic")
 
-        group_sizes = exotics_df.group_by("Hash").count().rename({"count": "group_size"})
+        group_sizes = (
+            exotics_df.group_by("Hash").count().rename({"count": "group_size"})
+        )
 
         ranked_df = exotics_df.with_columns(
             [
@@ -264,7 +306,18 @@ class ArmorFilter:
 
         result = result.drop(["quality_rank", "group_size"])
 
-        result = result.drop(['Top Bin Gap', 'Bottom Bin Gap', 'Mob Res Gap', 'Mob Rec Gap', 'Res Rec Gap', 'Top Gap', 'Bottom Quality', 'Top Decay'])
+        result = result.drop(
+            [
+                "Top Bin Gap",
+                "Bottom Bin Gap",
+                "Mob Res Gap",
+                "Mob Rec Gap",
+                "Res Rec Gap",
+                "Top Gap",
+                "Bottom Quality",
+                "Top Decay",
+            ]
+        )
 
         return result
 
@@ -308,7 +361,8 @@ class ArmorFilter:
             )
 
             best_per_source = class_subset.sort(
-                by=["Source", "Energy Capacity", "Power"], descending=[False, True, True]
+                by=["Source", "Energy Capacity", "Power"],
+                descending=[False, True, True],
             ).unique(subset=["Source"], keep="first")
 
             artifice_item = (
@@ -317,12 +371,9 @@ class ArmorFilter:
                 .limit(1)
             )
 
-
-            top_power_item = (
-                all_class_items
-                .sort(by=["Power", "Energy Capacity"], descending=[True, True])
-                .limit(1)
-            )
+            top_power_item = all_class_items.sort(
+                by=["Power", "Energy Capacity"], descending=[True, True]
+            ).limit(1)
 
             items_to_keep = pl.concat(
                 [
@@ -342,13 +393,10 @@ class ArmorFilter:
 
         to_trash = pl.concat(all_trash)
 
-        to_trash = to_trash.with_columns([
-            pl.lit(0.0).alias("Quality Decay")
-        ])
+        to_trash = to_trash.with_columns([pl.lit(0.0).alias("Quality Decay")])
 
         return to_trash
 
-    
     def _calculate_class_specific_decays(
         self, class_df: pl.DataFrame, distributions
     ) -> pl.DataFrame:
@@ -388,9 +436,9 @@ class ArmorFilter:
             # Calculate "Top Gap" as the minimum of the calculated gaps
             class_df = class_df.with_columns(
                 [
-                    pl.min_horizontal(["Mob Res Gap", "Mob Rec Gap", "Res Rec Gap"]).alias(
-                        "Top Gap"
-                    )
+                    pl.min_horizontal(
+                        ["Mob Res Gap", "Mob Rec Gap", "Res Rec Gap"]
+                    ).alias("Top Gap")
                 ]
             )
         else:
@@ -398,10 +446,10 @@ class ArmorFilter:
             class_df = class_df.with_columns([pl.lit(None).alias("Top Gap")])
 
         return class_df
-    
+
     def _calc_bottom_stat_score(self, stat_col: pl.Expr, target_stat: int) -> pl.Expr:
         return (5 - (5 * stat_col) / target_stat).clip(0, None)
-    
+
     def _keep_max_power_armor(df: pl.DataFrame):
         df = df.sort(
             by=["Type", "Equippable", "Power", "Quality Decay"],
