@@ -5,6 +5,7 @@ from src.armor_cleaner import (
     find_low_quality_armor,
     find_artifice_armor,
     find_exotics,
+    find_class_items
 )
 from configparser import ConfigParser
 from src.ui import ArmorCleanerUI
@@ -60,8 +61,10 @@ def do_calculations(armor_file, min_quality, bottom_stat_target, distributions):
 
     exotic_armor = find_exotics(scored_armor, DEFAULT_MINIMUM_QUALITY)
 
+    class_items = find_class_items(armor_file)
+
     armor_to_delete = pl.concat(
-        [low_quality_armor, raid_armor, artifice_armor, exotic_armor]
+        [low_quality_armor, raid_armor, artifice_armor, exotic_armor, class_items]
     )
 
     armor_list = " or ".join([f"id:{item}" for item in armor_to_delete["Id"].to_list()])

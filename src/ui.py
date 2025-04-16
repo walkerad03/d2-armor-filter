@@ -79,6 +79,8 @@ class ArmorCleanerUI(QMainWindow):
         self.setWindowIcon(QIcon("src/assets/icon.png"))
         self.setGeometry(100, 100, 800, 400)
 
+        self.setMinimumWidth(800)
+
         central_widget = QWidget()
         central_widget.setLayout(self.initUI())
         self.setCentralWidget(central_widget)
@@ -90,6 +92,9 @@ class ArmorCleanerUI(QMainWindow):
         )
         default_disc_target = self.configur.getint(
             "values", "DEFAULT_BOTTOM_STAT_TARGET"
+        )
+        default_ignore_tags_value = self.configur.getboolean(
+            "values", "IGNORE_TAGS"
         )
 
         main_layout = QVBoxLayout()
@@ -204,6 +209,25 @@ class ArmorCleanerUI(QMainWindow):
 
         left_layout.addWidget(checkbox_section)
 
+        # Ignore Tags button
+        ignore_tags_section = QGroupBox()
+        ignore_tags_layout = QHBoxLayout()
+
+        ignore_tags_label = QLabel("Ignore Tags")
+        self.ignore_tags_toggle = QCheckBox()
+        self.ignore_tags_toggle.setChecked(default_ignore_tags_value)
+        
+        ignore_tags_section.setToolTip("Filter items tagged as Archive or Infuse")
+
+        ignore_tags_layout.addWidget(ignore_tags_label)
+        ignore_tags_layout.addWidget(self.ignore_tags_toggle)
+
+        ignore_tags_section.setLayout(ignore_tags_layout)
+        ignore_tags_section.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+
+        left_layout.addWidget(ignore_tags_section)
+
+
         # Set layout options for left layout
         left_widget = QWidget()
         left_widget.setLayout(left_layout)
@@ -258,6 +282,7 @@ class ArmorCleanerUI(QMainWindow):
         self.disc_stat_slider.valueChanged.connect(self.update_disc_slider)
         self.upload_button.clicked.connect(self.upload_file)
         run_button.clicked.connect(self.process_file)
+        self.ignore_tags_toggle.clicked.connect(self.update_ignore_tags)
 
         return main_layout
 
@@ -293,6 +318,13 @@ class ArmorCleanerUI(QMainWindow):
         value = self.checkboxes[row][col].isChecked()
 
         self.configur.set(section, key, str(value))
+        with open("config.ini", "w") as configfile:
+            self.configur.write(configfile)
+
+    def update_ignore_tags(self):
+        value = self.ignore_tags_toggle.isChecked()
+
+        self.configur.set("values", "ignore_tags", str(value))
         with open("config.ini", "w") as configfile:
             self.configur.write(configfile)
 

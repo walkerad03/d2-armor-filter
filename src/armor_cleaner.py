@@ -1,6 +1,87 @@
 import polars as pl
 
 
+def find_class_items(df: pl.DataFrame):
+    class_items = df.filter(
+        pl.col("Tier").is_in(["Legendary", "Rare", "Common"])
+        & pl.col("Type").is_in(["Hunter Cloak", "Titan Mark", "Warlock Bond"])
+    )
+
+    sources_to_keep = [
+        "gardenofsalvation",
+        "dreaming",
+        "ironbanner",
+        "deepstonecrypt",
+        "vowofthedisciple",
+        "vaultofglass",
+        "salvationsedge",
+        "crotasend",
+        "nightmare",
+        "kingsfall",
+        "lastwish",
+    ]
+
+    equippables = {
+        "Hunter": "Hunter Cloak",
+        "Titan": "Titan Mark",
+        "Warlock": "Warlock Bond",
+    }
+
+    all_trash = []
+
+    for class_name in equippables.keys():
+        all_class_items = class_items.filter(pl.col("Equippable") == class_name)
+
+        class_subset = class_items.filter(
+            (pl.col("Equippable") == class_name)
+            & (
+                (pl.col("Source").is_in(sources_to_keep))
+                | (pl.col("Event") == "Guardian Games")
+            )
+        )
+
+        best_per_source = class_subset.sort(
+            by=["Source", "Energy Capacity", "Power"], descending=[False, True, True]
+        ).unique(subset=["Source"], keep="first")
+
+        artifice_item = (
+            all_class_items.filter(pl.col("Seasonal Mod") == "artifice")
+            .sort(by=["Energy Capacity", "Power"], descending=[True, True])
+            .limit(1)
+        )
+
+
+        top_power_item = (
+            all_class_items
+            .sort(by=["Power", "Energy Capacity"], descending=[True, True])
+            .limit(1)
+        )
+
+        items_to_keep = pl.concat(
+            [
+                best_per_source,
+                artifice_item,
+                top_power_item,
+            ]
+        ).unique()
+
+        keep_ids = items_to_keep["Id"] if "Id" in all_class_items.columns else None
+
+        class_trash = class_items.filter(
+            (pl.col("Equippable") == class_name) & ~(pl.col("Id").is_in(keep_ids))
+        )
+
+        all_trash.append(class_trash)
+
+    to_trash = pl.concat(all_trash)
+
+    to_trash = to_trash.with_columns([
+        pl.lit(0.0).alias("Quality Decay")
+    ])
+
+    return to_trash
+
+
 def keep_max_power_armor(df: pl.DataFrame):
     df = df.sort(
         by=["Type", "Equippable", "Power", "Quality Decay"],
@@ -35,23 +116,23 @@ def _calculate_class_specific_decays(
 
     if distributions.get("mob_res", False) != "False":
         exprs.append(
-            (
-                32 - (pl.col("Mobility (Base)") + pl.col("Resilience (Base)"))
-            ).alias("Mob Res Gap")
+            (32 - (pl.col("Mobility (Base)") + pl.col("Resilience (Base)"))).alias(
+                "Mob Res Gap"
+            )
         )
 
     if distributions.get("mob_rec", False) != "False":
         exprs.append(
-            (
-                32 - (pl.col("Mobility (Base)") + pl.col("Recovery (Base)"))
-            ).alias("Mob Rec Gap")
+            (32 - (pl.col("Mobility (Base)") + pl.col("Recovery (Base)"))).alias(
+                "Mob Rec Gap"
+            )
         )
 
     if distributions.get("res_rec", False) != "False":
         exprs.append(
-            (
-                32 - (pl.col("Resilience (Base)") + pl.col("Recovery (Base)"))
-            ).alias("Res Rec Gap")
+            (32 - (pl.col("Resilience (Base)") + pl.col("Recovery (Base)"))).alias(
+                "Res Rec Gap"
+            )
         )
 
     if exprs:
@@ -59,9 +140,9 @@ def _calculate_class_specific_decays(
         # Calculate "Top Gap" as the minimum of the calculated gaps
         class_df = class_df.with_columns(
             [
-                pl.min_horizontal(
-                    ["Mob Res Gap", "Mob Rec Gap", "Res Rec Gap"]
-                ).alias("Top Gap")
+                pl.min_horizontal(["Mob Res Gap", "Mob Rec Gap", "Res Rec Gap"]).alias(
+                    "Top Gap"
+                )
             ]
         )
     else:
@@ -90,8 +171,7 @@ def calculate_decays(
     )
     if not ignore_tags:
         df = df.filter(
-            pl.col("Tag").is_in(["archive", "infuse"]).not_()
-            | pl.col("Tag").is_null()
+            pl.col("Tag").is_in(["archive", "infuse"]).not_() | pl.col("Tag").is_null()
         )
 
     # Calculate "Top Bin Gap" and clip to zero
@@ -147,40 +227,17 @@ def calculate_decays(
     # Concatenate the processed class DataFrames
     df = pl.concat(dfs)
 
-    # Calculate "Bottom Quality"
-    if only_disc:
-        df = df.with_columns(
-            [
-                _calc_bottom_stat_score(
-                    pl.col("Discipline (Base)"), bottom_stat_target
-                ).alias("Bottom Quality")
-            ]
-        )
-    else:
-        df = df.with_columns(
-            [
-                _calc_bottom_stat_score(
-                    pl.col("Discipline (Base)"), bottom_stat_target
-                ).alias("Disc Quality"),
-                _calc_bottom_stat_score(
-                    pl.col("Intellect (Base)"), bottom_stat_target
-                ).alias("Int Quality"),
-                _calc_bottom_stat_score(
-                    pl.col("Strength (Base)"), bottom_stat_target
-                ).alias("Str Quality"),
-                pl.min_horizontal(
-                    ["Disc Quality", "Int Quality", "Str Quality"]
-                ).alias("Bottom Quality"),
-            ]
-        )
+    df = df.with_columns(
+        [
+            _calc_bottom_stat_score(
+                pl.col("Discipline (Base)"), bottom_stat_target
+            ).alias("Bottom Quality")
+        ]
+    )
 
     # First, calculate "Top Decay"
     df = df.with_columns(
-        [
-            ((pl.col("Top Gap") / 7.0) + (pl.col("Top Bin Gap") / 3.0)).alias(
-                "Top Decay"
-            )
-        ]
+        [((pl.col("Top Gap") / 7.0) + (pl.col("Top Bin Gap") / 3.0)).alias("Top Decay")]
     )
 
     # Then, calculate "Quality Decay" using the newly created "Top Decay" column
@@ -199,9 +256,7 @@ def calculate_decays(
     return df
 
 
-def find_low_quality_armor(
-    df: pl.DataFrame, min_quality: float
-) -> pl.DataFrame:
+def find_low_quality_armor(df: pl.DataFrame, min_quality: float) -> pl.DataFrame:
     seasonal_mods_to_exclude = [
         "vaultofglass",
         "vowofthedisciple",
@@ -227,6 +282,8 @@ def find_low_quality_armor(
         )
         & (pl.col("Quality Decay") >= min_quality)
     )
+
+    armor_to_delete = armor_to_delete.drop(['Top Bin Gap', 'Bottom Bin Gap', 'Mob Res Gap', 'Mob Rec Gap', 'Res Rec Gap', 'Top Gap', 'Bottom Quality', 'Top Decay'])
 
     return armor_to_delete
 
@@ -287,9 +344,7 @@ def find_artifice_armor(
     )
 
     # Identify Ids to remove (those with minimum "Quality Decay" < min_quality)
-    ids_to_remove = quality_min.filter(pl.col("Quality Decay") < min_quality)[
-        "Id"
-    ]
+    ids_to_remove = quality_min.filter(pl.col("Quality Decay") < min_quality)["Id"]
 
     # Filter the DataFrame to exclude the Ids to remove
     filtered_df = new_df.filter(~pl.col("Id").is_in(ids_to_remove))
@@ -298,6 +353,8 @@ def find_artifice_armor(
     final_df = filtered_df.sort(["Id", "Quality Decay"]).unique(
         subset=["Id"], keep="first"
     )
+
+    final_df = final_df.drop(['Top Bin Gap', 'Bottom Bin Gap', 'Mob Res Gap', 'Mob Rec Gap', 'Res Rec Gap', 'Top Gap', 'Bottom Quality', 'Top Decay'])
 
     return final_df
 
@@ -334,15 +391,15 @@ def find_raid_armor(df: pl.DataFrame, min_quality: float) -> pl.DataFrame:
         .drop("quality_rank")
     )
 
+    result = result.drop(['Top Bin Gap', 'Bottom Bin Gap', 'Mob Res Gap', 'Mob Rec Gap', 'Res Rec Gap', 'Top Gap', 'Bottom Quality', 'Top Decay'])
+
     return result
 
 
 def find_exotics(df: pl.DataFrame, min_quality: float) -> pl.DataFrame:
     exotics_df = df.filter(pl.col("Tier") == "Exotic")
 
-    group_sizes = (
-        exotics_df.group_by("Hash").count().rename({"count": "group_size"})
-    )
+    group_sizes = exotics_df.group_by("Hash").count().rename({"count": "group_size"})
 
     ranked_df = exotics_df.with_columns(
         [
@@ -362,5 +419,7 @@ def find_exotics(df: pl.DataFrame, min_quality: float) -> pl.DataFrame:
     )
 
     result = result.drop(["quality_rank", "group_size"])
+
+    result = result.drop(['Top Bin Gap', 'Bottom Bin Gap', 'Mob Res Gap', 'Mob Rec Gap', 'Res Rec Gap', 'Top Gap', 'Bottom Quality', 'Top Decay'])
 
     return result
