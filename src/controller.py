@@ -39,6 +39,7 @@ class AppController:
         self.ui.set_process_enabled_state(False)
         
         self.ui.clear_photo_grid()
+        self.image_placeholders = {}
         
         df = pl.read_csv(self.filepath)
         text_result, hash_list = self.do_calculations(df, min_quality, bottom_stat_target, distributions)
