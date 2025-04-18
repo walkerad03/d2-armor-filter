@@ -1,3 +1,4 @@
+import datetime
 import json
 import os
 import sqlite3
@@ -21,6 +22,14 @@ class ManifestBrowser:
         if not os.path.isfile(f"{self.MANIFEST_STORAGE_DIR}manifest.content"):
             self.get_manifest()
 
+        with open("data/manifest/last-download-date", "r") as file:
+            download_date = datetime.datetime.strptime(
+                file.read(), "%Y-%m-%d %H:%M:%S.%f"
+            )
+
+        if datetime.datetime.now() - download_date > datetime.timedelta(hours=24):
+            self.get_manifest()
+
     def get_manifest(self):
         manifest_url = "http://www.bungie.net/Platform/Destiny2/Manifest/"
 
@@ -40,6 +49,10 @@ class ManifestBrowser:
             zipped.extractall()
         os.rename(name[0], f"{self.MANIFEST_STORAGE_DIR}manifest.content")
         print("Unzipped")
+
+        ct = datetime.datetime.now()
+        with open("data/manifest/last-download-date", "w") as file:
+            file.write(str(ct))
 
     def get_inventory_item_from_hash(self, hash_value: int):
         id_val = int(hash_value)
