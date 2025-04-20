@@ -15,14 +15,7 @@ class ArmorFilter:
         ignore_tags: bool,
         always_keep_highest_power: bool,
     ) -> pl.DataFrame:
-        df = df.filter(
-            ~pl.col("Type").is_in(["Titan Mark", "Warlock Bond", "Hunter Cloak"])
-        )
-        if not ignore_tags:
-            df = df.filter(
-                pl.col("Tag").is_in(["archive", "infuse"]).not_()
-                | pl.col("Tag").is_null()
-            )
+        df = df.filter(~(pl.col("ItemSubType") == "ClassItem"))
 
         # Calculate "Top Bin Gap" and clip to zero
         df = df.with_columns(
@@ -31,9 +24,9 @@ class ArmorFilter:
                     (
                         34
                         - (
-                            pl.col("Mobility (Base)")
-                            + pl.col("Resilience (Base)")
-                            + pl.col("Recovery (Base)")
+                            pl.col("Mobility")
+                            + pl.col("Resilience")
+                            + pl.col("Recovery")
                         )
                     )
                     .clip(0, None)
@@ -49,9 +42,9 @@ class ArmorFilter:
                     (
                         34
                         - (
-                            pl.col("Discipline (Base)")
-                            + pl.col("Intellect (Base)")
-                            + pl.col("Strength (Base)")
+                            pl.col("Discipline")
+                            + pl.col("Intellect")
+                            + pl.col("Strength")
                         )
                     )
                     .clip(0, None)
@@ -80,7 +73,7 @@ class ArmorFilter:
         df = df.with_columns(
             [
                 self._calc_bottom_stat_score(
-                    pl.col("Discipline (Base)"), bottom_stat_target
+                    pl.col("Discipline"), bottom_stat_target
                 ).alias("Bottom Quality")
             ]
         )
@@ -109,30 +102,29 @@ class ArmorFilter:
 
         return df
 
-    def find_raid_armor(self, df: pl.DataFrame, min_quality: float) -> pl.DataFrame:
-        raid_modslots: list[str] = [
-            "vaultofglass",
-            "vowofthedisciple",
-            "rootofnightmares",
-            "deepstonecrypt",
-            "lastwish",
-            "kingsfall",
-            "crotasend",
+    def find_mod_armor(self, df: pl.DataFrame, min_quality: float) -> pl.DataFrame:
+        sources_to_keep: list[str] = [
             "gardenofsalvation",
+            "dreaming",
+            "ironbanner",
+            "deepstonecrypt",
+            "vowofthedisciple",
+            "vaultofglass",
             "salvationsedge",
+            "crotasend",
+            "nightmare",
+            "kingsfall",
+            "lastwish",
         ]
 
-        raid_armor = df.filter(
-            (pl.col("Seasonal Mod").is_in(raid_modslots))
-            | (pl.col("Perks 0") == "Riven's Curse*")
-        )
+        raid_armor = df.filter(pl.col("Source").is_in(sources_to_keep))
 
         result = (
             raid_armor.with_columns(
                 [
                     pl.col("Quality Decay")
                     .rank("ordinal", descending=False)
-                    .over(["Equippable", "Seasonal Mod", "Type"])
+                    .over(["Equippable", "Source", "ItemSubType"])
                     .alias("quality_rank")
                 ]
             )
@@ -159,29 +151,23 @@ class ArmorFilter:
     def find_low_quality_armor(
         self, df: pl.DataFrame, min_quality: float
     ) -> pl.DataFrame:
-        seasonal_mods_to_exclude = [
-            "vaultofglass",
-            "vowofthedisciple",
-            "rootofnightmares",
-            "deepstonecrypt",
-            "lastwish",
-            "kingsfall",
-            "crotasend",
+        sources_to_exclude: list[str] = [
             "gardenofsalvation",
+            "dreaming",
+            "ironbanner",
+            "deepstonecrypt",
+            "vowofthedisciple",
+            "vaultofglass",
             "salvationsedge",
-            "artifice",
+            "crotasend",
+            "nightmare",
+            "kingsfall",
+            "lastwish",
         ]
 
         armor_to_delete = df.filter(
             (pl.col("Tier") != "Exotic")
-            & (
-                pl.col("Seasonal Mod").is_in(seasonal_mods_to_exclude).not_()
-                | pl.col("Seasonal Mod").is_null()
-            )
-            & (
-                pl.col("Perks 0").is_in(["Riven's Curse*"]).not_()
-                | pl.col("Perks 0").is_null()
-            )
+            & (pl.col("Source").is_in(sources_to_exclude).not_() | pl.col("IsArtifice"))
             & (pl.col("Quality Decay") >= min_quality)
         )
 
@@ -213,16 +199,16 @@ class ArmorFilter:
     ) -> pl.DataFrame:
         # Filter for artifice armor that's not exotic
         artifice = df.filter(
-            (pl.col("Seasonal Mod") == "artifice") & (pl.col("Tier") != "Exotic")
+            (pl.col("IsArtifice") == "true") & (pl.col("Tier") != "Exotic")
         )
 
         changable_cols = [
-            "Mobility (Base)",
-            "Resilience (Base)",
-            "Recovery (Base)",
-            "Discipline (Base)",
-            "Intellect (Base)",
-            "Strength (Base)",
+            "Mobility",
+            "Resilience",
+            "Recovery",
+            "Discipline",
+            "Intellect",
+            "Strength",
         ]
 
         # List to hold modified DataFrames
@@ -324,7 +310,7 @@ class ArmorFilter:
     def find_class_items(self, df: pl.DataFrame):
         class_items = df.filter(
             pl.col("Tier").is_in(["Legendary", "Rare", "Common"])
-            & pl.col("Type").is_in(["Hunter Cloak", "Titan Mark", "Warlock Bond"])
+            & (pl.col("ItemSubType") == "ClassItem")
         )
 
         sources_to_keep = [
@@ -339,6 +325,7 @@ class ArmorFilter:
             "nightmare",
             "kingsfall",
             "lastwish",
+            "guardiangames",
         ]
 
         equippables = {
@@ -354,10 +341,7 @@ class ArmorFilter:
 
             class_subset = class_items.filter(
                 (pl.col("Equippable") == class_name)
-                & (
-                    (pl.col("Source").is_in(sources_to_keep))
-                    | (pl.col("Event") == "Guardian Games")
-                )
+                & (pl.col("Source").is_in(sources_to_keep))
             )
 
             best_per_source = class_subset.sort(
@@ -366,7 +350,7 @@ class ArmorFilter:
             ).unique(subset=["Source"], keep="first")
 
             artifice_item = (
-                all_class_items.filter(pl.col("Seasonal Mod") == "artifice")
+                all_class_items.filter(pl.col("IsArtifice"))
                 .sort(by=["Energy Capacity", "Power"], descending=[True, True])
                 .limit(1)
             )
@@ -412,23 +396,17 @@ class ArmorFilter:
 
         if distributions.get("mob_res", False) != "False":
             exprs.append(
-                (32 - (pl.col("Mobility (Base)") + pl.col("Resilience (Base)"))).alias(
-                    "Mob Res Gap"
-                )
+                (32 - (pl.col("Mobility") + pl.col("Resilience"))).alias("Mob Res Gap")
             )
 
         if distributions.get("mob_rec", False) != "False":
             exprs.append(
-                (32 - (pl.col("Mobility (Base)") + pl.col("Recovery (Base)"))).alias(
-                    "Mob Rec Gap"
-                )
+                (32 - (pl.col("Mobility") + pl.col("Recovery"))).alias("Mob Rec Gap")
             )
 
         if distributions.get("res_rec", False) != "False":
             exprs.append(
-                (32 - (pl.col("Resilience (Base)") + pl.col("Recovery (Base)"))).alias(
-                    "Res Rec Gap"
-                )
+                (32 - (pl.col("Resilience") + pl.col("Recovery"))).alias("Res Rec Gap")
             )
 
         if exprs:
@@ -452,16 +430,16 @@ class ArmorFilter:
 
     def _keep_max_power_armor(df: pl.DataFrame):
         df = df.sort(
-            by=["Type", "Equippable", "Power", "Quality Decay"],
+            by=["ItemSubType", "Equippable", "Power", "Quality Decay"],
             descending=[False, False, True, False],
         )
 
-        max_power_per_group = df.group_by(["Type", "Equippable"]).agg(
+        max_power_per_group = df.group_by(["ItemSubType", "Equippable"]).agg(
             pl.max("Power").alias("Max Power")
         )
 
         filtered = (
-            df.join(max_power_per_group, on=["Type", "Equippable"])
+            df.join(max_power_per_group, on=["ItemSubType", "Equippable"])
             .filter(pl.col("Power") != pl.col("Max Power"))
             .drop(["Max Power"])
         )

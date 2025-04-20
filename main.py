@@ -8,6 +8,7 @@ from src.armor_cleaner import ArmorFilter
 from src.controller import AppController
 from src.destiny_api import ManifestBrowser
 from src.ui import AppUI
+from src.auth import BungieAuth
 
 
 def main():
@@ -22,12 +23,14 @@ def main():
     app = QApplication(sys.argv)
 
     ui = AppUI(config_parser=configur)
+    auth = BungieAuth()
     manifest_browser = ManifestBrowser()
     armor_filter = ArmorFilter()
     controller = AppController(
         ui=ui,
         api=manifest_browser,
         armor_cleaner=armor_filter,
+        auth=auth,
         configur=configur,
     )
 

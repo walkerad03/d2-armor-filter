@@ -7,6 +7,16 @@ import zipfile
 import requests
 from dotenv import load_dotenv
 
+item_subtype_map = {
+    26: "HelmetArmor",
+    27: "GauntletsArmor",
+    28: "ChestArmor",
+    29: "LegArmor",
+    30: "ClassArmor",
+}
+
+class_type_map = {0: "Titan", 1: "Hunter", 2: "Warlock", 3: "Unknown"}
+
 
 class ManifestBrowser:
     def __init__(self) -> None:
@@ -15,6 +25,10 @@ class ManifestBrowser:
         self.BUNGIE_API_KEY = os.getenv("BUNGIE_API_KEY")
         self.MANIFEST_STORAGE_DIR = "data/manifest/"
         self.headers = {"X-API-KEY": self.BUNGIE_API_KEY}
+
+        self.cached_item_defs: dict[int, dict] = {}
+        self.cached_stat_defs = {}
+        self.cached_source_hashes: dict[int, str] = {}
 
         if not os.path.isdir(self.MANIFEST_STORAGE_DIR):
             os.makedirs(self.MANIFEST_STORAGE_DIR)
@@ -55,24 +69,10 @@ class ManifestBrowser:
             file.write(str(ct))
 
     def get_inventory_item_from_hash(self, hash_value: int):
-        id_val = int(hash_value)
-        if (id_val & (1 << (32 - 1))) != 0:
-            id_val = id_val - (1 << 32)
+        if hash_value in self.cached_item_defs:
+            return self.cached_item_defs[hash_value]
 
-        con = sqlite3.connect(f"{self.MANIFEST_STORAGE_DIR}manifest.content")
-        cur = con.cursor()
-        cur.execute(f"SELECT * FROM DestinyInventoryItemDefinition WHERE id={id_val};")
-        items = cur.fetchall()
-
-        if len(items) > 1:
-            raise ValueError(f"db call returned more than 1 result: {len(items)}")
-
-        return items
-
-    def get_item_details_from_hash(self, hash_value: int):
-        id_val = int(hash_value)
-        if (id_val & (1 << (32 - 1))) != 0:
-            id_val = id_val - (1 << 32)
+        id_val = self.correct_hash_sign(hash_value)
 
         con = sqlite3.connect(f"{self.MANIFEST_STORAGE_DIR}manifest.content")
         cur = con.cursor()
@@ -84,7 +84,118 @@ class ManifestBrowser:
 
         if len(items) == 0:
             raise ValueError(f"No items found: {id_val}")
-        json_data = json.loads(items[0][1])
+
+        parsed_json = json.loads(items[0][1])
+
+        self.cached_item_defs[hash_value] = parsed_json
+
+        return parsed_json
+
+    def get_source_from_item_hash(self, hash_value: int):
+        if hash_value in self.cached_source_hashes:
+            return self.cached_source_hashes[hash_value]
+
+        item_details = self.get_inventory_item_from_hash(hash_value)
+
+        try:
+            collectible_hash = item_details["collectibleHash"]
+        except Exception:
+            self.cached_source_hashes[hash_value] = ""
+            return ""
+
+        id_val = self.correct_hash_sign(collectible_hash)
+
+        con = sqlite3.connect(f"{self.MANIFEST_STORAGE_DIR}manifest.content")
+        cur = con.cursor()
+        cur.execute(f"SELECT * FROM DestinyCollectibleDefinition WHERE id={id_val};")
+        items = cur.fetchall()
+
+        if len(items) > 1:
+            raise ValueError(f"db call returned more than 1 result: {len(items)}")
+
+        if len(items) == 0:
+            print(hash_value)
+            raise ValueError(f"No items found: {id_val}")
+
+        output = json.loads(items[0][1])["sourceString"]
+
+        self.cached_source_hashes[collectible_hash] = output
+
+        return output
+
+    def get_destiny_stat_definition(self, hash_value: int):
+        if hash_value in self.cached_stat_defs:
+            parsed_json = self.cached_stat_defs[hash_value]
+
+        else:
+            id_val = self.correct_hash_sign(hash_value)
+
+            con = sqlite3.connect(f"{self.MANIFEST_STORAGE_DIR}manifest.content")
+            cur = con.cursor()
+            cur.execute(f"SELECT * FROM DestinyStatDefinition WHERE id={id_val};")
+            items = cur.fetchall()
+
+            if len(items) > 1:
+                raise ValueError(f"db call returned more than 1 result: {len(items)}")
+
+            if len(items) == 0:
+                raise ValueError(f"No items found: {id_val}")
+
+            parsed_json = json.loads(items[0][1])
+
+            self.cached_stat_defs[hash_value] = parsed_json
+
+        return parsed_json
+
+    def get_armor_subtype(self, hash_value: int) -> str:
+        json_data = self.get_inventory_item_from_hash(hash_value)
+
+        item_subtype_enum = json_data["itemSubType"]
+
+        item_subtype = item_subtype_map.get(item_subtype_enum, "None")
+
+        return item_subtype
+
+    def is_artifice(self, hash_value: int) -> bool:
+        json_data = self.get_inventory_item_from_hash(hash_value)
+
+        socket_categories = json_data.get("sockets", {}).get("socketCategories", {})
+
+        perk_indices = []
+
+        for socket in socket_categories:
+            if (
+                socket.get("socketCategoryHash", 0) != 3154740035
+            ):  # Armor Perks Category
+                continue
+
+            perk_indices = socket["socketIndexes"]
+
+        socket_entries = json_data.get("sockets", {}).get("socketEntries", {})
+        for perk_index in perk_indices:
+            if socket_entries[perk_index]["singleInitialItemHash"] == 3727270518:
+                # value refers to artifice armor mod. MIGHT CHANGE
+                return True
+        return False
+
+    def get_class_type(self, hash_value: int) -> str:
+        json_data = self.get_inventory_item_from_hash(hash_value)
+
+        item_class_type_enum = json_data["classType"]
+
+        item_class_type = class_type_map.get(item_class_type_enum, "None")
+
+        return item_class_type
+
+    def get_item_rarity_from_hash(self, hash_value: int):
+        json_data = self.get_inventory_item_from_hash(hash_value)
+
+        item_rarity = json_data["inventory"]["tierTypeName"]
+
+        return item_rarity
+
+    def get_item_details_from_hash(self, hash_value: int):
+        json_data = self.get_inventory_item_from_hash(hash_value)
 
         item_data = {}
         item_data["name"] = json_data["displayProperties"]["name"]
@@ -93,19 +204,8 @@ class ManifestBrowser:
         return item_data
 
     def get_item_icon_from_hash(self, hash_value: int, file_name: str):
-        id_val = int(hash_value)
-        if (id_val & (1 << (32 - 1))) != 0:
-            id_val = id_val - (1 << 32)
+        json_data = self.get_inventory_item_from_hash(hash_value)
 
-        con = sqlite3.connect(f"{self.MANIFEST_STORAGE_DIR}manifest.content")
-        cur = con.cursor()
-        cur.execute(f"SELECT * FROM DestinyInventoryItemDefinition WHERE id={id_val};")
-        items = cur.fetchall()
-
-        if len(items) > 1:
-            raise ValueError(f"db call returned more than 1 result: {len(items)}")
-
-        json_data = json.loads(items[0][1])
         icon_url = f"https://www.bungie.net{json_data['displayProperties']['icon']}"
         overlay_url = f"https://www.bungie.net{json_data['iconWatermark']}"
         query_params = {"downloadFormat": "png"}
@@ -141,3 +241,10 @@ class ManifestBrowser:
             )
 
         return attributes
+
+    def correct_hash_sign(self, hash_value) -> int:
+        id_val = int(hash_value)
+        if (id_val & (1 << (32 - 1))) != 0:
+            id_val = id_val - (1 << 32)
+
+        return id_val
