@@ -59,22 +59,48 @@ class AppController:
         self.text_result: Optional[str] = None
         self.image_placeholders: dict = {}
 
-        if not os.path.exists("data/output.csv"):
-            self.df = self.create_armor_df()
-        else:
-            self.df = pl.read_csv("data/output.csv")
+        self.max_quality: Optional[float] = None
+        self.target_discipline: Optional[int] = None
+
+        self.handle_armor_refresh()
+
+        self.always_keep_highest_power = True
+        self.build_flags = {
+            "Hunter": {"MobRes": True, "ResRec": True, "MobRec": False},
+            "Warlock": {"MobRes": False, "ResRec": True, "MobRec": False},
+            "Titan": {"MobRes": False, "ResRec": True, "MobRec": False},
+        }
 
         self.connect_signals()
 
+    def handle_armor_refresh(self) -> None:
+        self.ui.set_process_enabled_state(False)
+
+        self.max_quality = self.configur.getfloat("values", "DEFAULT_MAX_QUALITY")
+        self.target_discipline = self.configur.getint(
+            "values", "DEFAULT_DISC_TARGET"
+        )
+
+        self.ui.clear_photo_grid()
+        self.image_placeholders = {}
+
+        self.df = self.create_armor_df()
+
+        self.ui.set_process_enabled_state(True)
+
+    def start_app(self):
+        self.ui.show()
+
     def connect_signals(self):
-        self.ui.upload_triggered.connect(self.handle_upload)
+        self.ui.reload_triggered.connect(self.handle_armor_refresh)
         self.ui.process_triggered.connect(self.handle_process)
         self.ui.copy_query_triggered.connect(self.handle_copy_query)
 
     def create_armor_df(self) -> pl.DataFrame:
         res = self.auth.query_protected_endpoint(
             f"https://www.bungie.net/Platform/Destiny2/"
-            f"{self.mem_type}/Profile/{self.mem_id}/?components=102,201,205"
+            f"{self.mem_type}/Profile/{self.mem_id}/"
+            "?components=102,201,205,300,302,304,305"
         )
 
         vault = (
@@ -90,6 +116,19 @@ class AppController:
 
         equipped = res.get("Response", {}).get("characterEquipment", {}).get("data", {})
 
+        item_instances = (
+            res.get("Response", {})
+            .get("itemComponents", {})
+            .get("instances")
+            .get("data", {})
+        )
+        item_sockets = (
+            res.get("Response", {})
+            .get("itemComponents", {})
+            .get("sockets", {})
+            .get("data", {})
+        )
+
         inventory = vault
 
         for key in character_inventories:
@@ -101,8 +140,8 @@ class AppController:
         item_dict = []
 
         for item in tqdm(inventory):
-            item_hash = item["itemHash"]
-
+            item_hash = item.get("itemHash", None)
+            item_instance_id = item.get("itemInstanceId", None)
             item_def = self.api.get_inventory_item_from_hash(item_hash)
 
             item_type = item_def["itemType"]
@@ -110,33 +149,21 @@ class AppController:
             if item_type != 2:
                 continue
 
-            item_instance_id = item.get("itemInstanceId", None)
-
-            item_tier = item_def["inventory"]["tierTypeName"]
-
+            item_tier = item_def.get("inventory", {}).get("tierTypeName", None)
             item_sub_type = self.api.get_armor_subtype(item_hash)
             item_equippable = self.api.get_class_type(item_hash)
 
             item_details = self.api.get_item_details_from_hash(item_hash)
             item_name = item_details["name"]
 
-            get_item_res = self.auth.query_protected_endpoint(
-                f"https://www.bungie.net/Platform/Destiny2/{self.mem_type}/Profile/"
-                f"{self.mem_id}/Item/{item_instance_id}/?components=300,302,304,305"
-            )
-
             item_power = (
-                get_item_res.get("Response", {})
-                .get("instance", {})
-                .get("data", {})
+                item_instances.get(item_instance_id, {})
                 .get("primaryStat", {})
                 .get("value", 0)
             )
 
             item_energy = (
-                get_item_res.get("Response", {})
-                .get("instance", {})
-                .get("data", {})
+                item_instances.get(item_instance_id, {})
                 .get("energy", {})
                 .get("energyCapacity", 0)
             )
@@ -169,7 +196,9 @@ class AppController:
                 "IsArtifice": is_artifice,
             }
 
-            item_base_stats = self.get_base_stats_from_id(item_instance_id)
+            sockets = item_sockets.get(item_instance_id, {}).get("sockets", [])
+            item_base_stats = self.get_base_stats_from_id(sockets)
+
             item_statsheet |= item_base_stats
 
             item_dict.append(item_statsheet)
@@ -179,33 +208,7 @@ class AppController:
 
         return dataframe
 
-    def get_base_stats_from_id(self, item_instance_id):
-        # TODO: This function creates some incorrect results
-        endpoint = (
-            f"https://www.bungie.net/Platform/Destiny2/{self.mem_type}/Profile/"
-            f"{self.mem_id}/Item/{item_instance_id}/?components=305"
-        )
-
-        response = self.auth.query_protected_endpoint(endpoint)
-
-        if "data" not in response["Response"]["sockets"]:
-            return {
-                "Mobility": 0,
-                "Resilience": 0,
-                "Recovery": 0,
-                "Discipline": 0,
-                "Intellect": 0,
-                "Strength": 0,
-                "Total": 0,
-            }
-
-        parsed_plugs = (
-            response.get("Response", {})
-            .get("sockets", {})
-            .get("data", {})
-            .get("sockets", [])
-        )
-
+    def get_base_stats_from_id(self, sockets):
         stat_totals = {
             "Mobility": 0,
             "Resilience": 0,
@@ -216,24 +219,26 @@ class AppController:
             "Total": 0,
         }
 
-        for plug in parsed_plugs:
+        for plug in sockets:
             if not plug["isEnabled"]:
                 continue
             plug_hash = plug["plugHash"]
 
             res = self.api.get_inventory_item_from_hash(plug_hash)
 
-            if res["plug"]["plugCategoryIdentifier"] == "intrinsics":
-                investment_stats = res["investmentStats"]
+            if res["plug"]["plugCategoryIdentifier"] != "intrinsics":
+                continue
 
-                for stat in investment_stats:
-                    stat_type_hash = stat["statTypeHash"]
-                    stat_data = self.api.get_destiny_stat_definition(stat_type_hash)
+            investment_stats = res["investmentStats"]
 
-                    stat_name = stat_data["displayProperties"]["name"]
-                    stat_value = stat["value"]
-                    stat_totals[stat_name] += stat_value
-                    stat_totals["Total"] += stat_value
+            for stat in investment_stats:
+                stat_type_hash = stat["statTypeHash"]
+                stat_data = self.api.get_destiny_stat_definition(stat_type_hash)
+
+                stat_name = stat_data["displayProperties"]["name"]
+                stat_value = stat["value"]
+                stat_totals[stat_name] += stat_value
+                stat_totals["Total"] += stat_value
 
         return stat_totals
 
@@ -244,28 +249,17 @@ class AppController:
         self.ui.set_clipboard_contents(self.text_result)
         self.ui.output_box.setText("DIM query copied to clipboard.")
 
-    def handle_upload(self, filepath):
-        self.ui.output_box.setText(f"File selected: {filepath}")
-        self.filepath = filepath
-
-    def handle_process(self, min_quality, bottom_stat_target, distributions):
+    def handle_process(self):
         self.ui.set_process_enabled_state(False)
 
         self.ui.clear_photo_grid()
         self.image_placeholders = {}
 
-        build_flags = {
-            "Hunter": {"MobRes": True, "ResRec": True, "MobRec": False},
-            "Warlock": {"MobRes": False, "ResRec": True, "MobRec": False},
-            "Titan": {"MobRes": False, "ResRec": True, "MobRec": False},
-        }
-
-        # PLEASE REPLACE THIS OH MY GOD
         params = FilterParams(
-            target_discipline=bottom_stat_target,
-            max_quality=min_quality,
-            always_keep_highest_power=True,
-            build_flags=build_flags,
+            target_discipline=self.target_discipline,
+            max_quality=self.max_quality,
+            always_keep_highest_power=self.always_keep_highest_power,
+            build_flags=self.build_flags,
         )
 
         trash_armor_df = self.armor_cleaner.filter_armor_items(self.df, params)
@@ -314,66 +308,6 @@ class AppController:
             task = IconLoaderRunnable(hash_value, self.api)
             task.signals.finished.connect(self._on_runner_finished)
             self.thread_pool.start(task)
-
-    def do_calculations(
-        self, armor_file, min_quality, bottom_stat_target, distributions
-    ):
-        DEFAULT_MINIMUM_QUALITY = float(min_quality)
-        DEFAULT_BOTTOM_STAT_TARGET = int(bottom_stat_target)
-        IGNORE_TAGS = self.configur.getboolean("values", "IGNORE_TAGS")
-        ALWAYS_KEEP_HIGHEST_POWER = self.configur.getboolean(
-            "values", "ALWAYS_KEEP_HIGHEST_POWER"
-        )
-
-        HUNTER_DIST = distributions["hunter distributions"]
-        TITAN_DIST = distributions["titan distributions"]
-        WARLOCK_DIST = distributions["warlock distributions"]
-
-        # Load csv and tier armor
-        scored_armor = self.armor_cleaner.calculate_decays(
-            armor_file,
-            DEFAULT_BOTTOM_STAT_TARGET,
-            HUNTER_DIST,
-            TITAN_DIST,
-            WARLOCK_DIST,
-            IGNORE_TAGS,
-            ALWAYS_KEEP_HIGHEST_POWER,
-        )
-
-        mod_armor = self.armor_cleaner.find_mod_armor(
-            scored_armor, DEFAULT_MINIMUM_QUALITY
-        )
-
-        low_quality_armor = self.armor_cleaner.find_low_quality_armor(
-            scored_armor, DEFAULT_MINIMUM_QUALITY
-        )
-
-        artifice_armor = self.armor_cleaner.find_artifice_armor(
-            armor_file,
-            DEFAULT_MINIMUM_QUALITY,
-            DEFAULT_BOTTOM_STAT_TARGET,
-            HUNTER_DIST,
-            TITAN_DIST,
-            WARLOCK_DIST,
-            IGNORE_TAGS,
-            ALWAYS_KEEP_HIGHEST_POWER,
-        )
-
-        exotic_armor = self.armor_cleaner.find_exotics(
-            scored_armor, DEFAULT_MINIMUM_QUALITY
-        )
-
-        class_items = self.armor_cleaner.find_class_items(armor_file)
-
-        armor_to_delete = pl.concat(
-            [low_quality_armor, mod_armor, artifice_armor, exotic_armor, class_items]
-        )
-
-        armor_list = " or ".join(
-            [f"id:{item}" for item in armor_to_delete["Id"].to_list()]
-        )
-
-        return armor_list, armor_to_delete["Id", "Hash"]
 
     def get_armor_stats(self, armor_id: str) -> str:
         row = self.df.filter(pl.col("Id") == armor_id)

@@ -17,7 +17,6 @@ def main():
     configur = ConfigParser()
     configur.read(config_path)
 
-    os.environ["QT_AUTO_SCREEN_SCALE_FACTOR"] = "1"
     os.environ["QT_ENABLE_HIGHDPI_SCALING"] = "1"
 
     app = QApplication(sys.argv)
@@ -26,6 +25,7 @@ def main():
     auth = BungieAuth()
     manifest_browser = ManifestBrowser()
     armor_filter = ArmorFilter()
+
     controller = AppController(
         ui=ui,
         api=manifest_browser,
@@ -34,7 +34,8 @@ def main():
         configur=configur,
     )
 
-    ui.show()
+    controller.start_app()
+
     sys.exit(app.exec_())
 
 

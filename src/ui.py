@@ -6,7 +6,6 @@ from PyQt5.QtSvg import QSvgWidget
 from PyQt5.QtWidgets import (
     QApplication,
     QCheckBox,
-    QFileDialog,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -108,8 +107,8 @@ class HoverImage(QLabel):
 
 
 class AppUI(QMainWindow):
-    upload_triggered = pyqtSignal(str)
-    process_triggered = pyqtSignal(float, int, dict)
+    reload_triggered = pyqtSignal()
+    process_triggered = pyqtSignal()
     copy_query_triggered = pyqtSignal()
 
     def __init__(self, config_parser: ConfigParser):
@@ -129,11 +128,11 @@ class AppUI(QMainWindow):
 
     def initUI(self):
         # Get default values from config file
-        default_min_quality = self.configur.getfloat(
-            "values", "DEFAULT_MINIMUM_QUALITY"
+        default_quality = self.configur.getfloat(
+            "values", "DEFAULT_MAX_QUALITY"
         )
         default_disc_target = self.configur.getint(
-            "values", "DEFAULT_BOTTOM_STAT_TARGET"
+            "values", "DEFAULT_DISC_TARGET"
         )
         default_ignore_tags_value = self.configur.getboolean("values", "IGNORE_TAGS")
 
@@ -144,38 +143,38 @@ class AppUI(QMainWindow):
         # Setup left layout and upload button
         left_layout = QVBoxLayout()
 
-        upload_section = QGroupBox()
-        upload_layout = QVBoxLayout()
-        self.upload_button = QPushButton("Upload DIM Armor CSV", self)
-        self.upload_button.setToolTip(
-            "Download your CSV from DIM by going to\n`settings > spreadsheets > armor`"
+        reload_section = QGroupBox()
+        reload_layout = QVBoxLayout()
+        self.reload_button = QPushButton("Reload Armor List", self)
+        self.reload_button.setToolTip(
+            "Get new armor stats from Bungie"
         )
 
-        upload_layout.addWidget(self.upload_button)
+        reload_layout.addWidget(self.reload_button)
 
-        upload_section.setLayout(upload_layout)
-        upload_section.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        reload_section.setLayout(reload_layout)
+        reload_section.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
 
-        left_layout.addWidget(upload_section)
+        left_layout.addWidget(reload_section)
 
-        # Create minimum quality option
-        min_quality_section = QGroupBox()
-        min_quality_layout = QVBoxLayout()
+        # Create maximum quality option
+        quality_section = QGroupBox()
+        quality_layout = QVBoxLayout()
 
-        min_quality_label = QLabel("Minimum Quality")
-        self.min_quality_input = QLineEdit()
-        self.min_quality_input.setText(str(default_min_quality))
-        min_quality_section.setToolTip(
-            "Most sensitive option. Lower min quality will be more restrictive.\n<5=very relaxed\n<2=somewhat strict\n<1=extremely strict"
+        quality_label = QLabel("Maximum Quality")
+        self.quality_input = QLineEdit()
+        self.quality_input.setText(str(default_quality))
+        quality_section.setToolTip(
+            "Most sensitive option. Lower quality will be more restrictive.\n<5=very relaxed\n<2=somewhat strict\n<1=extremely strict"
         )
 
-        min_quality_layout.addWidget(min_quality_label)
-        min_quality_layout.addWidget(self.min_quality_input)
+        quality_layout.addWidget(quality_label)
+        quality_layout.addWidget(self.quality_input)
 
-        min_quality_section.setLayout(min_quality_layout)
-        min_quality_section.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        quality_section.setLayout(quality_layout)
+        quality_section.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
 
-        left_layout.addWidget(min_quality_section)
+        left_layout.addWidget(quality_section)
 
         # Create slider and label for discipline target values
         disc_stat_section = QGroupBox()
@@ -234,7 +233,7 @@ class AppUI(QMainWindow):
                 self.checkboxes[x][y] = checkbox
 
                 checkbox.stateChanged.connect(
-                    lambda state, r=x, c=y: self.update_config_from_checkbox(r, c)
+                    lambda _, r=x, c=y: self.update_config_from_checkbox(r, c)
                 )
 
         self.config_keys = ["mob_res", "mob_rec", "res_rec"]
@@ -344,11 +343,12 @@ class AppUI(QMainWindow):
         main_layout.addWidget(bottom_widget)
 
         # set connections
-        self.min_quality_input.editingFinished.connect(self.update_min_quality_config)
+        self.quality_input.editingFinished.connect(self.update_quality_config)
         self.disc_stat_slider.valueChanged.connect(self.update_disc_slider)
-        self.upload_button.clicked.connect(self.trigger_upload)
-        self.run_button.clicked.connect(self.trigger_process)
         self.ignore_tags_toggle.clicked.connect(self.update_ignore_tags)
+
+        self.reload_button.clicked.connect(self.trigger_armor_refresh)
+        self.run_button.clicked.connect(self.trigger_process)
         self.copy_all_button.clicked.connect(self.copy_query_to_clipboard)
 
         return main_layout
@@ -370,16 +370,15 @@ class AppUI(QMainWindow):
     def copy_query_to_clipboard(self):
         self.copy_query_triggered.emit()
 
-    def update_min_quality_config(self):
-        value = self.min_quality_input.text()
+    def update_quality_config(self):
+        value = self.quality_input.text()
 
         try:
-            float_value = float(value)  # validate input
+            float_value = float(value)
             self.configur.set("values", "DEFAULT_MINIMUM_QUALITY", str(float_value))
             with open("config.ini", "w") as configfile:
                 self.configur.write(configfile)
         except ValueError:
-            # Optionally show a warning dialog or reset the field
             print("Invalid input: must be a number")
 
     def update_config_from_checkbox(self, row, col):
@@ -418,25 +417,11 @@ class AppUI(QMainWindow):
         with open("config.ini", "w") as configfile:
             self.configur.write(configfile)
 
-    def trigger_upload(self):
-        options = QFileDialog.Options()
-        options |= QFileDialog.ReadOnly
-        filename, _ = QFileDialog.getOpenFileName(
-            self,
-            "Open CSV File",
-            "",
-            "CSV Files (*.csv);;All Files (*)",
-            options=options,
-        )
-        if filename:
-            self.upload_triggered.emit(filename)
+    def trigger_armor_refresh(self):
+        self.reload_triggered.emit()
 
     def trigger_process(self):
-        min_quality = float(self.min_quality_input.text())
-        bottom_stat_target = int(self.disc_stat_slider.value())
-        distributions = self.extract_grid_values()
-
-        self.process_triggered.emit(min_quality, bottom_stat_target, distributions)
+        self.process_triggered.emit()
 
     def show_warning(self, title: str = "", body: str = ""):
         QMessageBox.warning(self, title, body)

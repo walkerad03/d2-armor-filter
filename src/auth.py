@@ -45,6 +45,9 @@ class BungieAuth:
         global auth_token
         full_url = request.url
 
+        if not os.path.exists("data"):
+            os.makedirs("data")
+
         auth_token = self.auth_session.fetch_token(
             token_url=self.token_url,
             authorization_response=full_url,
