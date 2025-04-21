@@ -1,318 +1,102 @@
 import polars as pl
+from dataclasses import dataclass
+from typing import Tuple
+
+
+STAT_COLS = [
+    "Mobility",
+    "Resilience",
+    "Recovery",
+    "Discipline",
+    "Intellect",
+    "Strength",
+]
+
+SOURCE_LIST = [
+    "gardenofsalvation",
+    "dreaming",
+    "ironbanner",
+    "deepstonecrypt",
+    "vowofthedisciple",
+    "vaultofglass",
+    "salvationsedge",
+    "crotasend",
+    "nightmare",
+    "kingsfall",
+    "lastwish",
+]
+
+
+@dataclass
+class FilterParams:
+    target_discipline: int
+    max_quality: float
+
+    always_keep_highest_power: bool
+    build_flags: dict[str, dict[str, bool]]
 
 
 class ArmorFilter:
-    def __init__(self):
+    def __init__(self) -> None:
         pass
 
-    def calculate_decays(
-        self,
-        df: pl.DataFrame,
-        bottom_stat_target: int,
-        hunter_dist,
-        titan_dist,
-        warlock_dist,
-        ignore_tags: bool,
-        always_keep_highest_power: bool,
+    def filter_armor_items(
+        self, df: pl.DataFrame, params: FilterParams
     ) -> pl.DataFrame:
-        df = df.filter(~(pl.col("ItemSubType") == "ClassItem"))
+        working_df = df
 
-        # Calculate "Top Bin Gap" and clip to zero
-        df = df.with_columns(
-            [
-                (
-                    (
-                        34
-                        - (
-                            pl.col("Mobility")
-                            + pl.col("Resilience")
-                            + pl.col("Recovery")
-                        )
-                    )
-                    .clip(0, None)
-                    .alias("Top Bin Gap")
-                )
-            ]
+        if params.always_keep_highest_power:
+            working_df = self.drop_highest_power_by_type(working_df)
+
+        """
+        Remove Exotic Class Items from consideration. This is not a feature I want to
+        add yet.
+        """
+        working_df = working_df.filter(
+            (
+                (pl.col("Tier") == "Exotic") & (pl.col("ItemSubType") == "ClassArmor")
+            ).not_()
         )
 
-        # Calculate "Bottom Bin Gap" and clip to zero
-        df = df.with_columns(
-            [
-                (
-                    (
-                        34
-                        - (
-                            pl.col("Discipline")
-                            + pl.col("Intellect")
-                            + pl.col("Strength")
-                        )
-                    )
-                    .clip(0, None)
-                    .alias("Bottom Bin Gap")
-                )
-            ]
+        normal_armor, artifice_armor, class_armor = self.split_armor_categories(
+            working_df
         )
 
-        # Define class distributions
-        class_distributions = {
-            "Hunter": hunter_dist,
-            "Titan": titan_dist,
-            "Warlock": warlock_dist,
-        }
-
-        # Process each class separately
-        dfs = []
-        for class_name, distributions in class_distributions.items():
-            class_df = df.filter(pl.col("Equippable") == class_name)
-            class_df = self._calculate_class_specific_decays(class_df, distributions)
-            dfs.append(class_df)
-
-        # Concatenate the processed class DataFrames
-        df = pl.concat(dfs)
-
-        df = df.with_columns(
-            [
-                self._calc_bottom_stat_score(
-                    pl.col("Discipline"), bottom_stat_target
-                ).alias("Bottom Quality")
-            ]
+        normal_armor = self.compute_quality(
+            df=normal_armor,
+            target_disc=params.target_discipline,
+            build_flags=params.build_flags,
         )
 
-        # First, calculate "Top Decay"
-        df = df.with_columns(
-            [
-                ((pl.col("Top Gap") / 7.0) + (pl.col("Top Bin Gap") / 3.0)).alias(
-                    "Top Decay"
-                )
-            ]
+        artifice_armor = self.min_quality_with_artifice_boost(
+            df=artifice_armor,
+            target_disc=params.target_discipline,
+            build_flags=params.build_flags,
         )
 
-        # Then, calculate "Quality Decay" using the newly created "Top Decay" column
-        df = df.with_columns(
-            [
-                (
-                    pl.col("Top Decay")
-                    + (pl.col("Bottom Bin Gap") + pl.col("Bottom Quality")) / 4
-                ).alias("Quality Decay")
-            ]
+        exotics_armor_df = artifice_armor.filter(pl.col("Tier") == "Exotic")
+        exotics_to_delete = self.filter_exotic_armor(
+            df=exotics_armor_df, max_quality=params.max_quality
         )
 
-        if always_keep_highest_power:
-            df = self._keep_max_power_armor(df)
+        normal_and_artifice = pl.concat([normal_armor, artifice_armor])
 
-        return df
-
-    def find_mod_armor(self, df: pl.DataFrame, min_quality: float) -> pl.DataFrame:
-        sources_to_keep: list[str] = [
-            "gardenofsalvation",
-            "dreaming",
-            "ironbanner",
-            "deepstonecrypt",
-            "vowofthedisciple",
-            "vaultofglass",
-            "salvationsedge",
-            "crotasend",
-            "nightmare",
-            "kingsfall",
-            "lastwish",
-        ]
-
-        raid_armor = df.filter(pl.col("Source").is_in(sources_to_keep))
-
-        result = (
-            raid_armor.with_columns(
-                [
-                    pl.col("Quality Decay")
-                    .rank("ordinal", descending=False)
-                    .over(["Equippable", "Source", "ItemSubType"])
-                    .alias("quality_rank")
-                ]
-            )
-            .filter(pl.col("quality_rank") > 1)
-            .filter(pl.col("Quality Decay") > min_quality)
-            .drop("quality_rank")
+        normal_legendaries = normal_and_artifice.filter(
+            (pl.col("Source").is_null()) & (pl.col("Tier") != "Exotic")
         )
 
-        result = result.drop(
-            [
-                "Top Bin Gap",
-                "Bottom Bin Gap",
-                "Mob Res Gap",
-                "Mob Rec Gap",
-                "Res Rec Gap",
-                "Top Gap",
-                "Bottom Quality",
-                "Top Decay",
-            ]
+        legendaries_to_delete = self.filter_normal_and_artifice(
+            df=normal_legendaries,
+            max_quality=params.max_quality,
         )
 
-        return result
+        class_items_to_delete = self.filter_class_items(df=class_armor)
 
-    def find_low_quality_armor(
-        self, df: pl.DataFrame, min_quality: float
-    ) -> pl.DataFrame:
-        sources_to_exclude: list[str] = [
-            "gardenofsalvation",
-            "dreaming",
-            "ironbanner",
-            "deepstonecrypt",
-            "vowofthedisciple",
-            "vaultofglass",
-            "salvationsedge",
-            "crotasend",
-            "nightmare",
-            "kingsfall",
-            "lastwish",
-        ]
-
-        armor_to_delete = df.filter(
-            (pl.col("Tier") != "Exotic")
-            & (pl.col("Source").is_in(sources_to_exclude).not_() | pl.col("IsArtifice"))
-            & (pl.col("Quality Decay") >= min_quality)
+        return pl.concat(
+            [class_items_to_delete, exotics_to_delete, legendaries_to_delete]
         )
 
-        armor_to_delete = armor_to_delete.drop(
-            [
-                "Top Bin Gap",
-                "Bottom Bin Gap",
-                "Mob Res Gap",
-                "Mob Rec Gap",
-                "Res Rec Gap",
-                "Top Gap",
-                "Bottom Quality",
-                "Top Decay",
-            ]
-        )
-
-        return armor_to_delete
-
-    def find_artifice_armor(
-        self,
-        df: pl.DataFrame,
-        min_quality: float,
-        bottom_stat_target: int,
-        hunter_dist,
-        titan_dist,
-        warlock_dist,
-        ignore_tags: bool,
-        always_keep_highest_power: bool,
-    ) -> pl.DataFrame:
-        # Filter for artifice armor that's not exotic
-        artifice = df.filter(
-            (pl.col("IsArtifice") == "true") & (pl.col("Tier") != "Exotic")
-        )
-
-        changable_cols = [
-            "Mobility",
-            "Resilience",
-            "Recovery",
-            "Discipline",
-            "Intellect",
-            "Strength",
-        ]
-
-        # List to hold modified DataFrames
-        modified_dfs = []
-
-        # Modify each stat column by adding 2 and collect the DataFrames
-        for col in changable_cols:
-            working_df = artifice.clone()
-            working_df = working_df.with_columns((pl.col(col) + 2).alias(col))
-            if working_df.height > 0:
-                modified_dfs.append(working_df)
-
-        # Concatenate all modified DataFrames
-        new_df = pl.concat(modified_dfs)
-
-        # Calculate decays using the provided function
-        new_df = self.calculate_decays(
-            new_df,
-            bottom_stat_target,
-            hunter_dist,
-            titan_dist,
-            warlock_dist,
-            ignore_tags,
-            always_keep_highest_power,
-        )
-
-        # Get the minimum "Quality Decay" per "Id"
-        quality_min = new_df.group_by("Id").agg(
-            pl.col("Quality Decay").min().alias("Quality Decay")
-        )
-
-        # Identify Ids to remove (those with minimum "Quality Decay" < min_quality)
-        ids_to_remove = quality_min.filter(pl.col("Quality Decay") < min_quality)["Id"]
-
-        # Filter the DataFrame to exclude the Ids to remove
-        filtered_df = new_df.filter(~pl.col("Id").is_in(ids_to_remove))
-
-        # For each "Id", select the row with the minimum "Quality Decay"
-        final_df = filtered_df.sort(["Id", "Quality Decay"]).unique(
-            subset=["Id"], keep="first"
-        )
-
-        final_df = final_df.drop(
-            [
-                "Top Bin Gap",
-                "Bottom Bin Gap",
-                "Mob Res Gap",
-                "Mob Rec Gap",
-                "Res Rec Gap",
-                "Top Gap",
-                "Bottom Quality",
-                "Top Decay",
-            ]
-        )
-
-        return final_df
-
-    def find_exotics(self, df: pl.DataFrame, min_quality: float) -> pl.DataFrame:
-        exotics_df = df.filter(pl.col("Tier") == "Exotic")
-
-        group_sizes = (
-            exotics_df.group_by("Hash").count().rename({"count": "group_size"})
-        )
-
-        ranked_df = exotics_df.with_columns(
-            [
-                pl.col("Quality Decay")
-                .rank("ordinal", descending=False)
-                .over("Hash")
-                .alias("quality_rank")
-            ]
-        )
-
-        ranked_df = ranked_df.join(group_sizes, on="Hash")
-
-        result = ranked_df.filter(
-            (pl.col("group_size") > 2)
-            & (pl.col("quality_rank") > 2)
-            & (pl.col("Quality Decay") > min_quality)
-        )
-
-        result = result.drop(["quality_rank", "group_size"])
-
-        result = result.drop(
-            [
-                "Top Bin Gap",
-                "Bottom Bin Gap",
-                "Mob Res Gap",
-                "Mob Rec Gap",
-                "Res Rec Gap",
-                "Top Gap",
-                "Bottom Quality",
-                "Top Decay",
-            ]
-        )
-
-        return result
-
-    def find_class_items(self, df: pl.DataFrame):
-        class_items = df.filter(
-            pl.col("Tier").is_in(["Legendary", "Rare", "Common"])
-            & (pl.col("ItemSubType") == "ClassItem")
-        )
-
+    def filter_class_items(self, df: pl.DataFrame) -> pl.DataFrame:
         sources_to_keep = [
             "gardenofsalvation",
             "dreaming",
@@ -328,120 +112,204 @@ class ArmorFilter:
             "guardiangames",
         ]
 
-        equippables = {
-            "Hunter": "Hunter Cloak",
-            "Titan": "Titan Mark",
-            "Warlock": "Warlock Bond",
-        }
+        artifice_df = df.filter(pl.col("IsArtifice"))
 
-        all_trash = []
+        highest_power_rows = (
+            artifice_df.sort("Power", descending=True).group_by("Equippable").first()
+        )
 
-        for class_name in equippables.keys():
-            all_class_items = class_items.filter(pl.col("Equippable") == class_name)
+        output_df = artifice_df.join(
+            highest_power_rows, on=["Equippable", "Power"], how="anti"
+        )
 
-            class_subset = class_items.filter(
-                (pl.col("Equippable") == class_name)
-                & (pl.col("Source").is_in(sources_to_keep))
-            )
+        items_to_keep = (
+            output_df.filter(pl.col("Source").is_in(sources_to_keep))
+            .sort(["Power", "Energy Capacity"], descending=[True, True])
+            .group_by(["Source", "Equippable"])
+            .first()
+        )
 
-            best_per_source = class_subset.sort(
-                by=["Source", "Energy Capacity", "Power"],
-                descending=[False, True, True],
-            ).unique(subset=["Source"], keep="first")
+        output_df = output_df.join(
+            items_to_keep, on=["Equippable", "Source", "Power"], how="anti"
+        )
 
-            artifice_item = (
-                all_class_items.filter(pl.col("IsArtifice"))
-                .sort(by=["Energy Capacity", "Power"], descending=[True, True])
-                .limit(1)
-            )
+        output_df = output_df.select(pl.col(["Id", "Hash"]))
 
-            top_power_item = all_class_items.sort(
-                by=["Power", "Energy Capacity"], descending=[True, True]
-            ).limit(1)
+        return output_df
 
-            items_to_keep = pl.concat(
-                [
-                    best_per_source,
-                    artifice_item,
-                    top_power_item,
-                ]
-            ).unique()
+    def filter_exotic_armor(self, df: pl.DataFrame, max_quality: float) -> pl.DataFrame:
+        best_exotic_rows = df.select(
+            pl.all().top_k_by("Quality", k=2).over("Hash", mapping_strategy="explode")
+        )
 
-            keep_ids = items_to_keep["Id"] if "Id" in all_class_items.columns else None
+        output_df = df.join(best_exotic_rows, on=["Hash", "Quality"], how="anti")
 
-            class_trash = class_items.filter(
-                (pl.col("Equippable") == class_name) & ~(pl.col("Id").is_in(keep_ids))
-            )
+        output_df = output_df.filter(pl.col("Quality") > max_quality)
 
-            all_trash.append(class_trash)
+        output_df = output_df.select(pl.col(["Id", "Hash"]))
 
-        to_trash = pl.concat(all_trash)
+        return output_df
 
-        to_trash = to_trash.with_columns([pl.lit(0.0).alias("Quality Decay")])
-
-        return to_trash
-
-    def _calculate_class_specific_decays(
-        self, class_df: pl.DataFrame, distributions
+    def filter_normal_and_artifice(
+        self, df: pl.DataFrame, max_quality: float
     ) -> pl.DataFrame:
-        class_df = class_df.with_columns(
+        best_armor_rows = df.select(
+            pl.all()
+            .top_k_by("Quality", k=1)
+            .over("ItemSubType", mapping_strategy="explode")
+        )
+
+        output_df = df.join(best_armor_rows, on=["Hash", "Quality"], how="anti")
+
+        output_df = output_df.filter(pl.col("Quality") > max_quality)
+
+        output_df = output_df.select(pl.col(["Id", "Hash"]))
+
+        return output_df
+
+    def compute_quality(
+        self,
+        df: pl.DataFrame,
+        target_disc: int,
+        build_flags: dict[str, dict[str, bool]],
+    ) -> pl.DataFrame:
+        working_df = df
+
+        working_df = self.compute_segment_gaps(working_df)
+
+        with_build_gaps = pl.DataFrame()
+
+        classes = ["Hunter", "Warlock", "Titan"]
+        for equippable in classes:
+            class_flags = build_flags[equippable]
+            class_specific = self.compute_class_build_gap(
+                working_df, equippable, class_flags
+            )
+            with_build_gaps = pl.concat([with_build_gaps, class_specific])
+
+        working_df = self.compute_top_segment_decay(with_build_gaps)
+
+        working_df = self.compute_discipline_quality(working_df, target_disc)
+
+        working_df = working_df.with_columns(
+            (
+                pl.col("Top Segment Decay")
+                + (pl.col("Bottom Segment Gap") + pl.col("Discipline Quality")) / 4
+            ).alias("Quality")
+        )
+
+        return working_df
+
+    def min_quality_with_artifice_boost(
+        self,
+        df: pl.DataFrame,
+        target_disc: int,
+        build_flags: dict[str, dict[str, bool]],
+    ):
+        working_df = df
+
+        final_df = self.compute_quality(working_df, target_disc, build_flags)
+
+        for stat in STAT_COLS:
+            working_df = working_df.with_columns([(pl.col(stat) + 3).alias(stat)])
+            working_df = self.compute_quality(working_df, target_disc, build_flags)
+
+            final_df = final_df.with_columns(
+                [
+                    pl.min_horizontal(
+                        pl.col("Quality"), pl.lit(working_df["Quality"])
+                    ).alias("Quality")
+                ]
+            )
+
+            working_df = working_df.with_columns([(pl.col(stat) - 3).alias(stat)])
+
+        return final_df
+
+    def drop_highest_power_by_type(self, df: pl.DataFrame) -> pl.DataFrame:
+        highest_power_rows = (
+            df.sort("Power", descending=True).group_by("ItemSubType").first()
+        )
+
+        output_df = df.join(highest_power_rows, on=["ItemSubType", "Power"], how="anti")
+        return output_df
+
+    def split_armor_categories(
+        self, df: pl.DataFrame
+    ) -> Tuple[pl.DataFrame, pl.DataFrame, pl.DataFrame]:
+        normal_armor = df.filter(
+            (pl.col("IsArtifice") | (pl.col("ItemSubType") == "ClassArmor")).not_()
+        )
+
+        artifice_armor = df.filter(
+            pl.col("IsArtifice") & (pl.col("ItemSubType") != "ClassArmor")
+        )
+
+        class_armor = df.filter(pl.col("ItemSubType") == "ClassArmor")
+
+        return (normal_armor, artifice_armor, class_armor)
+
+    def compute_segment_gaps(self, df: pl.DataFrame) -> pl.DataFrame:
+        working_df = df.with_columns(
+            (34 - (pl.col("Mobility") + pl.col("Resilience") + pl.col("Recovery")))
+            .clip(lower_bound=0, upper_bound=12)
+            .alias("Top Segment Gap"),
+            (34 - (pl.col("Discipline") + pl.col("Intellect") + pl.col("Strength")))
+            .clip(lower_bound=0, upper_bound=12)
+            .alias("Bottom Segment Gap"),
+        )
+
+        return working_df
+
+    def compute_class_build_gap(
+        self, df: pl.DataFrame, classType: str, build_flags: dict[str, bool]
+    ) -> pl.DataFrame:
+        working_df = df.filter(pl.col("Equippable") == classType)
+
+        working_df = working_df.with_columns(
             [
-                pl.lit(None).alias("Mob Res Gap"),
-                pl.lit(None).alias("Mob Rec Gap"),
-                pl.lit(None).alias("Res Rec Gap"),
+                pl.when(build_flags["MobRes"])
+                .then(32 - (pl.col("Mobility") + pl.col("Resilience")))
+                .otherwise(28)
+                .clip(lower_bound=0, upper_bound=28)
+                .alias("Mob Res Gap"),
+                pl.when(build_flags["ResRec"])
+                .then(32 - (pl.col("Resilience") + pl.col("Recovery")))
+                .otherwise(28)
+                .clip(lower_bound=0, upper_bound=28)
+                .alias("Res Rec Gap"),
+                pl.when(build_flags["MobRec"])
+                .then(32 - (pl.col("Mobility") + pl.col("Recovery")))
+                .otherwise(28)
+                .clip(lower_bound=0, upper_bound=28)
+                .alias("Mob Rec Gap"),
             ]
         )
 
-        exprs = []
-
-        if distributions.get("mob_res", False) != "False":
-            exprs.append(
-                (32 - (pl.col("Mobility") + pl.col("Resilience"))).alias("Mob Res Gap")
+        working_df = working_df.with_columns(
+            pl.min_horizontal("Mob Res Gap", "Res Rec Gap", "Mob Rec Gap").alias(
+                "Build Gap"
             )
-
-        if distributions.get("mob_rec", False) != "False":
-            exprs.append(
-                (32 - (pl.col("Mobility") + pl.col("Recovery"))).alias("Mob Rec Gap")
-            )
-
-        if distributions.get("res_rec", False) != "False":
-            exprs.append(
-                (32 - (pl.col("Resilience") + pl.col("Recovery"))).alias("Res Rec Gap")
-            )
-
-        if exprs:
-            class_df = class_df.with_columns(exprs)
-            # Calculate "Top Gap" as the minimum of the calculated gaps
-            class_df = class_df.with_columns(
-                [
-                    pl.min_horizontal(
-                        ["Mob Res Gap", "Mob Rec Gap", "Res Rec Gap"]
-                    ).alias("Top Gap")
-                ]
-            )
-        else:
-            # If no distributions are selected, set "Top Gap" to None
-            class_df = class_df.with_columns([pl.lit(None).alias("Top Gap")])
-
-        return class_df
-
-    def _calc_bottom_stat_score(self, stat_col: pl.Expr, target_stat: int) -> pl.Expr:
-        return (5 - (5 * stat_col) / target_stat).clip(0, None)
-
-    def _keep_max_power_armor(df: pl.DataFrame):
-        df = df.sort(
-            by=["ItemSubType", "Equippable", "Power", "Quality Decay"],
-            descending=[False, False, True, False],
         )
 
-        max_power_per_group = df.group_by(["ItemSubType", "Equippable"]).agg(
-            pl.max("Power").alias("Max Power")
+        return working_df
+
+    def compute_top_segment_decay(self, df: pl.DataFrame) -> pl.DataFrame:
+        working_df = df.with_columns(
+            (pl.col("Build Gap") / 7 + pl.col("Top Segment Gap") / 3).alias(
+                "Top Segment Decay"
+            )
         )
 
-        filtered = (
-            df.join(max_power_per_group, on=["ItemSubType", "Equippable"])
-            .filter(pl.col("Power") != pl.col("Max Power"))
-            .drop(["Max Power"])
+        return working_df
+
+    def compute_discipline_quality(
+        self, df: pl.DataFrame, target_disc: int
+    ) -> pl.DataFrame:
+        working_df = df.with_columns(
+            (5 - (5 * pl.col("Discipline") / target_disc))
+            .clip(lower_bound=0)
+            .alias("Discipline Quality")
         )
 
-        return filtered
+        return working_df

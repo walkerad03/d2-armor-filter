@@ -5,7 +5,7 @@ import polars as pl
 from PyQt5.QtCore import QThreadPool
 from tqdm import tqdm
 
-from src.armor_cleaner import ArmorFilter
+from src.armor_cleaner import ArmorFilter, FilterParams
 from src.auth import BungieAuth
 from src.destiny_api import ManifestBrowser
 from src.ui import AppUI, HoverImage
@@ -23,16 +23,16 @@ class AppController:
     }
 
     source_map = {
-        '"Source: ""Root of Nightmares"" Raid"': "nightmare",
-        '"Source: ""Garden of Salvation"" Raid"': "gardenofsalvation",
+        'Source: "Root of Nightmares" Raid': "nightmare",
+        'Source: "Garden of Salvation" Raid': "gardenofsalvation",
         "Source: Complete activities in the Dreaming City.": "dreaming",
         "Source: Complete Iron Banner matches and earn rank-up packages from Lord Saladin.": "ironbanner",
-        '"Source: ""Deep Stone Crypt"" Raid"': "deepstonecrypt",
-        '"Source: ""Vow of the Disciple"" Raid"': "vowofthedisciple",
-        '"Source: ""Vault of Glass"" Raid"': "vaultofglass",
-        '''"Source: ""Salvation's Edge"" Raid"''': "salvationsedge",
-        '''"Source: ""Crota's End"" Raid"''': "crotasend",
-        '''"Source: ""King's Fall"" Raid"''': "kingsfall",
+        'Source: "Deep Stone Crypt" Raid': "deepstonecrypt",
+        'Source: "Vow of the Disciple" Raid': "vowofthedisciple",
+        'Source: "Vault of Glass" Raid': "vaultofglass",
+        'Source: "Salvation\'s Edge" Raid': "salvationsedge",
+        'Source: "Crota\'s End" Raid': "crotasend",
+        'Source: "King\'s Fall" Raid': "kingsfall",
         "Source: Last Wish raid.": "lastwish",
         "Source: Guardian Games 2025": "guardiangames",
     }
@@ -143,9 +143,12 @@ class AppController:
 
             is_masterworked = True if item_energy == 10 else False
 
-            is_artifice = self.api.is_artifice(item_hash)
+            if item_tier == "Exotic":
+                is_artifice = True
+            else:
+                is_artifice = self.api.is_artifice(item_hash)
 
-            if is_artifice:
+            if not item_def.get("collectibleHash"):
                 item_source_raw = item_def["displaySource"]
             else:
                 item_source_raw = self.api.get_source_from_item_hash(item_hash)
@@ -177,6 +180,7 @@ class AppController:
         return dataframe
 
     def get_base_stats_from_id(self, item_instance_id):
+        # TODO: This function creates some incorrect results
         endpoint = (
             f"https://www.bungie.net/Platform/Destiny2/{self.mem_type}/Profile/"
             f"{self.mem_id}/Item/{item_instance_id}/?components=305"
@@ -250,10 +254,26 @@ class AppController:
         self.ui.clear_photo_grid()
         self.image_placeholders = {}
 
-        self.text_result, trash_armor_df = self.do_calculations(
-            self.df, min_quality, bottom_stat_target, distributions
+        build_flags = {
+            "Hunter": {"MobRes": True, "ResRec": True, "MobRec": False},
+            "Warlock": {"MobRes": False, "ResRec": True, "MobRec": False},
+            "Titan": {"MobRes": False, "ResRec": True, "MobRec": False},
+        }
+
+        # PLEASE REPLACE THIS OH MY GOD
+        params = FilterParams(
+            target_discipline=bottom_stat_target,
+            max_quality=min_quality,
+            always_keep_highest_power=True,
+            build_flags=build_flags,
         )
-        self.ui.set_clipboard_contents(self.text_result)
+
+        trash_armor_df = self.armor_cleaner.filter_armor_items(self.df, params)
+        self.text_output = " or ".join(
+            [f"id:{item}" for item in trash_armor_df["Id"].to_list()]
+        )
+
+        self.ui.set_clipboard_contents(self.text_output)
 
         hash_list = trash_armor_df["Hash"].to_list()
 
