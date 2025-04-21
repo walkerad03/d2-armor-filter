@@ -110,6 +110,9 @@ class AppUI(QMainWindow):
     reload_triggered = pyqtSignal()
     process_triggered = pyqtSignal()
     copy_query_triggered = pyqtSignal()
+    
+    disc_slider_changed = pyqtSignal(int)
+    quality_updated = pyqtSignal(float)
 
     def __init__(self, config_parser: ConfigParser):
         super().__init__()
@@ -371,15 +374,8 @@ class AppUI(QMainWindow):
         self.copy_query_triggered.emit()
 
     def update_quality_config(self):
-        value = self.quality_input.text()
-
-        try:
-            float_value = float(value)
-            self.configur.set("values", "DEFAULT_MINIMUM_QUALITY", str(float_value))
-            with open("config.ini", "w") as configfile:
-                self.configur.write(configfile)
-        except ValueError:
-            print("Invalid input: must be a number")
+        value = float(self.quality_input.text())
+        self.quality_updated.emit(value)
 
     def update_config_from_checkbox(self, row, col):
         section = self.class_keys[col]
@@ -399,9 +395,9 @@ class AppUI(QMainWindow):
 
     def extract_grid_values(self):
         grid_values = {
-            "hunter distributions": {},
-            "warlock distributions": {},
-            "titan distributions": {},
+            "Hunter": {},
+            "Warlock": {},
+            "Titan": {},
         }
 
         for col, class_key in enumerate(self.class_keys):
@@ -413,9 +409,7 @@ class AppUI(QMainWindow):
 
     def update_disc_slider(self, value):
         self.disc_stat_label.setText(f"Discipline Target: {value}")
-        self.configur.set("values", "DEFAULT_BOTTOM_STAT_TARGET", str(value))
-        with open("config.ini", "w") as configfile:
-            self.configur.write(configfile)
+        self.disc_slider_changed.emit(value)
 
     def trigger_armor_refresh(self):
         self.reload_triggered.emit()

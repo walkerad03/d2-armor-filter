@@ -62,8 +62,6 @@ class AppController:
         self.max_quality: Optional[float] = None
         self.target_discipline: Optional[int] = None
 
-        self.handle_armor_refresh()
-
         self.always_keep_highest_power = True
         self.build_flags = {
             "Hunter": {"MobRes": True, "ResRec": True, "MobRec": False},
@@ -71,15 +69,24 @@ class AppController:
             "Titan": {"MobRes": False, "ResRec": True, "MobRec": False},
         }
 
-        self.connect_signals()
-
-    def handle_armor_refresh(self) -> None:
-        self.ui.set_process_enabled_state(False)
-
         self.max_quality = self.configur.getfloat("values", "DEFAULT_MAX_QUALITY")
         self.target_discipline = self.configur.getint(
             "values", "DEFAULT_DISC_TARGET"
         )
+
+        self.handle_armor_refresh()
+
+        self.connect_signals()
+
+    def connect_signals(self):
+        self.ui.reload_triggered.connect(self.handle_armor_refresh)
+        self.ui.process_triggered.connect(self.handle_process)
+        self.ui.copy_query_triggered.connect(self.handle_copy_query)
+        self.ui.disc_slider_changed.connect(self.handle_disc_slider_change)
+        self.ui.quality_updated.connect(self.handle_quality_change)
+
+    def handle_armor_refresh(self) -> None:
+        self.ui.set_process_enabled_state(False)
 
         self.ui.clear_photo_grid()
         self.image_placeholders = {}
@@ -90,11 +97,6 @@ class AppController:
 
     def start_app(self):
         self.ui.show()
-
-    def connect_signals(self):
-        self.ui.reload_triggered.connect(self.handle_armor_refresh)
-        self.ui.process_triggered.connect(self.handle_process)
-        self.ui.copy_query_triggered.connect(self.handle_copy_query)
 
     def create_armor_df(self) -> pl.DataFrame:
         res = self.auth.query_protected_endpoint(
@@ -204,7 +206,6 @@ class AppController:
             item_dict.append(item_statsheet)
 
         dataframe = pl.DataFrame(item_dict).sort("Name")
-        dataframe.write_csv("data/output.csv")
 
         return dataframe
 
@@ -241,6 +242,18 @@ class AppController:
                 stat_totals["Total"] += stat_value
 
         return stat_totals
+
+    def handle_disc_slider_change(self, value):
+        self.target_discipline = value
+        self.configur.set("values", "DEFAULT_DISC_TARGET", str(value))
+        with open("config.ini", "w") as configfile:
+            self.configur.write(configfile)
+
+    def handle_quality_change(self, value):
+        self.max_quality = value
+        self.configur.set("values", "DEFAULT_MAX_QUALITY", str(value))
+        with open("config.ini", "w") as configfile:
+            self.configur.write(configfile)
 
     def handle_copy_query(self) -> None:
         if not self.text_result:
@@ -381,6 +394,6 @@ class AppController:
                 self.ui.image_box.replaceWidget(label, new_label)
                 label.deleteLater()
                 self.ui.output_box.setText(
-                    f"Found {self.ui.image_box.count()} Armor Pieces."
+                    f"Found {self.ui.image_box.count()} Armor Pieces. "
                     "DIM query copied to clipboard."
                 )
