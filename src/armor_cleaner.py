@@ -85,6 +85,12 @@ class ArmorFilter:
             (pl.col("Source").is_null()) & (pl.col("Tier") != "Exotic")
         )
 
+        mod_armor = normal_and_artifice.filter((pl.col("Source").is_in(SOURCE_LIST)))
+
+        mod_armor_to_delete = self.filter_mod_armor(
+            df=mod_armor, max_quality=params.max_quality
+        )
+
         legendaries_to_delete = self.filter_normal_and_artifice(
             df=normal_legendaries,
             max_quality=params.max_quality,
@@ -93,8 +99,23 @@ class ArmorFilter:
         class_items_to_delete = self.filter_class_items(df=class_armor)
 
         return pl.concat(
-            [class_items_to_delete, exotics_to_delete, legendaries_to_delete]
+            [class_items_to_delete, exotics_to_delete, legendaries_to_delete, mod_armor_to_delete]
         )
+
+    def filter_mod_armor(self, df: pl.DataFrame, max_quality: float) -> pl.DataFrame:
+        result = (
+            df.with_columns([
+                pl.col("Quality")
+                .rank("ordinal", descending=False)
+                .over(["Equippable", "Source", "ItemSubType"])
+                .alias("Quality Rank")
+            ])
+            .filter(pl.col("Quality Rank") > 1)
+            .filter(pl.col("Quality") > max_quality)
+            .select(pl.col("Id", "Hash"))
+        )
+
+        return result
 
     def filter_class_items(self, df: pl.DataFrame) -> pl.DataFrame:
         sources_to_keep = [
