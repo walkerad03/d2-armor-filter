@@ -7,6 +7,7 @@ import zipfile
 import requests
 from dotenv import load_dotenv
 
+
 item_subtype_map = {
     26: "HelmetArmor",
     27: "GauntletsArmor",
@@ -15,7 +16,12 @@ item_subtype_map = {
     30: "ClassArmor",
 }
 
-class_type_map = {0: "Titan", 1: "Hunter", 2: "Warlock", 3: "Unknown"}
+class_type_map = {
+    0: "Titan",
+    1: "Hunter",
+    2: "Warlock",
+    3: "Unknown",
+}
 
 
 class ManifestBrowser:
@@ -23,26 +29,35 @@ class ManifestBrowser:
         load_dotenv()
 
         self.BUNGIE_API_KEY = os.getenv("BUNGIE_API_KEY")
-        self.MANIFEST_STORAGE_DIR = "data/manifest/"
+        self.MANIFEST_STORAGE_DIR = os.path.join("data", "manifest")
         self.headers = {"X-API-KEY": self.BUNGIE_API_KEY}
 
         self.cached_item_defs: dict[int, dict] = {}
         self.cached_stat_defs = {}
         self.cached_source_hashes: dict[int, str] = {}
 
+        self.auth_token = None
+
         if not os.path.isdir(self.MANIFEST_STORAGE_DIR):
             os.makedirs(self.MANIFEST_STORAGE_DIR)
 
-        if not os.path.isfile(f"{self.MANIFEST_STORAGE_DIR}manifest.content"):
+        if not os.path.isfile(
+            os.path.join(self.MANIFEST_STORAGE_DIR, "manifest.content")
+        ):
             self.get_manifest()
 
-        with open("data/manifest/last-download-date", "r") as file:
+        with open(
+            os.path.join(self.MANIFEST_STORAGE_DIR, "last-download-date"), "r"
+        ) as file:
             download_date = datetime.datetime.strptime(
                 file.read(), "%Y-%m-%d %H:%M:%S.%f"
             )
 
         if datetime.datetime.now() - download_date > datetime.timedelta(hours=24):
             self.get_manifest()
+
+    def set_auth_token(self, auth_token):
+        self.auth_token = auth_token
 
     def get_manifest(self):
         manifest_url = "http://www.bungie.net/Platform/Destiny2/Manifest/"
@@ -54,18 +69,25 @@ class ManifestBrowser:
         print(mani_url)
 
         r = requests.get(mani_url, headers=self.headers)
-        with open(f"{self.MANIFEST_STORAGE_DIR}MANZIP", "wb") as zipped:
+
+        with open(os.path.join(self.MANIFEST_STORAGE_DIR, "MANZIP"), "wb") as zipped:
             zipped.write(r.content)
         print("Download Complete")
 
-        with zipfile.ZipFile(f"{self.MANIFEST_STORAGE_DIR}MANZIP") as zipped:
+        with zipfile.ZipFile(
+            os.path.join(self.MANIFEST_STORAGE_DIR, "MANZIP")
+        ) as zipped:
             name = zipped.namelist()
             zipped.extractall()
-        os.rename(name[0], f"{self.MANIFEST_STORAGE_DIR}manifest.content")
+        if os.path.exists(os.path.join(self.MANIFEST_STORAGE_DIR, "manifest.content")):
+            os.remove(os.path.join(self.MANIFEST_STORAGE_DIR, "manifest.content"))
+        os.rename(name[0], os.path.join(self.MANIFEST_STORAGE_DIR, "manifest.content"))
         print("Unzipped")
 
         ct = datetime.datetime.now()
-        with open("data/manifest/last-download-date", "w") as file:
+        with open(
+            os.path.join(self.MANIFEST_STORAGE_DIR, "last-download-date"), "w"
+        ) as file:
             file.write(str(ct))
 
     def get_inventory_item_from_hash(self, hash_value: int):
@@ -74,7 +96,9 @@ class ManifestBrowser:
 
         id_val = self.correct_hash_sign(hash_value)
 
-        con = sqlite3.connect(f"{self.MANIFEST_STORAGE_DIR}manifest.content")
+        con = sqlite3.connect(
+            os.path.join(self.MANIFEST_STORAGE_DIR, "manifest.content")
+        )
         cur = con.cursor()
         cur.execute(f"SELECT * FROM DestinyInventoryItemDefinition WHERE id={id_val};")
         items = cur.fetchall()
@@ -105,7 +129,9 @@ class ManifestBrowser:
 
         id_val = self.correct_hash_sign(collectible_hash)
 
-        con = sqlite3.connect(f"{self.MANIFEST_STORAGE_DIR}manifest.content")
+        con = sqlite3.connect(
+            os.path.join(self.MANIFEST_STORAGE_DIR, "manifest.content")
+        )
         cur = con.cursor()
         cur.execute(f"SELECT * FROM DestinyCollectibleDefinition WHERE id={id_val};")
         items = cur.fetchall()
@@ -130,7 +156,9 @@ class ManifestBrowser:
         else:
             id_val = self.correct_hash_sign(hash_value)
 
-            con = sqlite3.connect(f"{self.MANIFEST_STORAGE_DIR}manifest.content")
+            con = sqlite3.connect(
+                os.path.join(self.MANIFEST_STORAGE_DIR, "manifest.content")
+            )
             cur = con.cursor()
             cur.execute(f"SELECT * FROM DestinyStatDefinition WHERE id={id_val};")
             items = cur.fetchall()
@@ -219,8 +247,41 @@ class ManifestBrowser:
         with open(f"{file_name.removesuffix('.png')}_overlay.png", mode="wb") as file:
             file.write(res.content)
 
+    def get_membership_for_user(self):
+        url = "https://www.bungie.net/Platform/User/GetMembershipsForCurrentUser/"
+        headers = {
+            "X-API-Key": self.BUNGIE_API_KEY,
+            "Authorization": f"Bearer {self.auth_token}",
+        }
+
+        res = requests.get(url, headers=headers)
+
+        data = res.json()["Response"]
+        print(data)
+        primary_mem_id = data["primaryMembershipId"]
+
+        mem_type, mem_id = None, None
+
+        for membership in data["destinyMemberships"]:
+            if membership["membershipId"] == primary_mem_id:
+                mem_id = membership["membershipId"]
+                mem_type = membership["membershipType"]
+                break
+
+        return mem_id, mem_type
+
+    def query_protected_endpoint(self, endpoint):
+        headers = {
+            "X-API-Key": self.BUNGIE_API_KEY,
+            "Authorization": f"Bearer {self.auth_token}",
+        }
+        res = requests.get(endpoint, headers=headers)
+        return res.json()
+
     def get_table_names(self) -> list[str]:
-        con = sqlite3.connect(f"{self.MANIFEST_STORAGE_DIR}manifest.content")
+        con = sqlite3.connect(
+            os.path.join(self.MANIFEST_STORAGE_DIR, "manifest.content")
+        )
         cur = con.cursor()
         cur.execute("SELECT name FROM sqlite_master WHERE type='table';")
 
@@ -228,7 +289,9 @@ class ManifestBrowser:
         return [table[0] for table in tables]
 
     def get_table_attributes(self, table_name: str):
-        con = sqlite3.connect(f"{self.MANIFEST_STORAGE_DIR}manifest.content")
+        con = sqlite3.connect(
+            os.path.join(self.MANIFEST_STORAGE_DIR, "manifest.content")
+        )
         cur = con.cursor()
         cur.execute(f"PRAGMA table_info({table_name});")
 

@@ -6,7 +6,7 @@ from PyQt5.QtCore import QThreadPool
 from tqdm import tqdm
 
 from src.armor_cleaner import ArmorFilter, FilterParams
-from src.auth import BungieAuth
+from src.auth import BungieOAuth
 from src.destiny_api import ManifestBrowser
 from src.ui import AppUI, HoverImage
 from src.workers import IconLoaderRunnable
@@ -42,7 +42,7 @@ class AppController:
         ui: AppUI,
         api: ManifestBrowser,
         armor_cleaner: ArmorFilter,
-        auth: BungieAuth,
+        auth: BungieOAuth,
         configur,
     ):
         self.ui = ui
@@ -53,7 +53,10 @@ class AppController:
         self.thread_pool = QThreadPool()
         self.thread_pool.setMaxThreadCount(1)
 
-        self.mem_id, self.mem_type = self.auth.get_membership_for_user()
+        auth_token = self.auth.authenticate()
+        self.api.set_auth_token(auth_token)
+
+        self.mem_id, self.mem_type = self.api.get_membership_for_user()
 
         self.filepath: Optional[str] = None
         self.text_result: Optional[str] = None
@@ -70,9 +73,7 @@ class AppController:
         }
 
         self.max_quality = self.configur.getfloat("values", "DEFAULT_MAX_QUALITY")
-        self.target_discipline = self.configur.getint(
-            "values", "DEFAULT_DISC_TARGET"
-        )
+        self.target_discipline = self.configur.getint("values", "DEFAULT_DISC_TARGET")
 
         self.handle_armor_refresh()
 
@@ -99,7 +100,7 @@ class AppController:
         self.ui.show()
 
     def create_armor_df(self) -> pl.DataFrame:
-        res = self.auth.query_protected_endpoint(
+        res = self.api.query_protected_endpoint(
             f"https://www.bungie.net/Platform/Destiny2/"
             f"{self.mem_type}/Profile/{self.mem_id}/"
             "?components=102,201,205,300,302,304,305"

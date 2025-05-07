@@ -1,121 +1,142 @@
-from flask import Flask, request
-from requests_oauthlib import OAuth2Session
-from dotenv import load_dotenv
-import os
+import base64
+import datetime
 import json
+import os
 import threading
 import webbrowser
+from datetime import timedelta
+
+import requests
+from dotenv import load_dotenv
+from flask import Flask, request
 
 
-class BungieAuth:
-    def __init__(self):
+class BungieOAuth:
+    def __init__(self, cert_filepath, key_filepath):
+        self.cert_filepath = cert_filepath
+        self.key_filepath = key_filepath
+
         load_dotenv()
 
-        self.api_key = os.getenv("BUNGIE_API_KEY")
+        self.bungie_api_key = os.getenv("BUNGIE_API_KEY")
         self.client_id = os.getenv("CLIENT_ID")
         self.client_secret = os.getenv("CLIENT_SECRET")
 
+        self.authorization_url = f"https://www.bungie.net/en/OAuth/Authorize?client_id={self.client_id}&response_type=code"
         self.redirect_url = "https://localhost:7777/callback"
-        self.base_auth_url = "https://www.bungie.net/en/OAuth/Authorize"
-        self.token_url = "https://www.bungie.net/platform/app/oauth/token/"
-        self.token_file = "data/oauth_token.json"
+        self.token_url = "https://www.bungie.net/platform/app/oauth/token"
+
+        self.auth_token_filepath = os.path.join("data", "oauth_token.json")
 
         self.app = Flask(__name__)
-        self.auth_token = {}
-        self.auth_session = None
+        self._auth_code_callback_event = threading.Event()
+        self._flask_thread = threading.Thread(target=self._run_flask_app, daemon=True)
 
-        self.app.add_url_rule("/callback", "callback", self.callback)
+        self.auth_code = None
+        self._configure_callback_route()
 
-        self.init_auth_session()
+    def _configure_callback_route(self):
+        @self.app.route("/callback", methods=["GET"])
+        def handle_callback():
+            global auth_code
+            auth_code = request.args.get("code")
+            self._auth_code_callback_event.set()
+            return "You can close this window.", 200
 
-    def load_token(self):
-        if os.path.exists(self.token_file):
-            with open(self.token_file, "r") as f:
-                return json.load(f)
-        return None
-
-    def save_token(self, token):
-        with open(self.token_file, "w") as f:
-            json.dump(token, f)
-
-    def run_flask(self):
-        self.app.run(ssl_context=("ssl/localhost.crt", "ssl/localhost.key"), port=7777)
-
-    def callback(self):
-        global auth_token
-        full_url = request.url
-
-        if not os.path.exists("data"):
-            os.makedirs("data")
-
-        auth_token = self.auth_session.fetch_token(
-            token_url=self.token_url,
-            authorization_response=full_url,
-            client_id=self.client_id,
-            client_secret=self.client_secret,
+    def _run_flask_app(self):
+        self.app.run(
+            port=7777,
+            ssl_context=(self.cert_filepath, self.key_filepath),
+            debug=True,
+            use_reloader=False,
         )
 
-        self.save_token(auth_token)
-
-        shutdown = request.environ.get("werkzeug.server.shutdown")
-        if shutdown:
-            shutdown()
-
-        return "Authorization complete. You can close this tab."
-
-    def init_auth_session(self):
-        token_data = self.load_token()
-
-        if token_data:
-            self.auth_session = OAuth2Session(
-                client_id=self.client_id,
-                token=token_data,
-                auto_refresh_url=self.token_url,
-                auto_refresh_kwargs={
-                    "client_id": self.client_id,
-                    "client_secret": self.client_secret,
-                },
-                token_updater=self.save_token,
-            )
+    def authenticate(self):
+        if not os.path.exists(self.auth_token_filepath):
+            token_data = self._get_access_token()
         else:
-            self.auth_session = OAuth2Session(
-                client_id=self.client_id, redirect_uri=self.redirect_url
-            )
-            auth_url, state = self.auth_session.authorization_url(self.base_auth_url)
+            with open(self.auth_token_filepath, "r") as f:
+                token_data = json.load(f)
 
-            flask_thread = threading.Thread(target=self.run_flask)
-            flask_thread.start()
-
-            print("Opening browser for authorization...")
-            webbrowser.open(auth_url)
-
-            flask_thread.join()
-            print("Token acquired and saved.")
-
-    def get_membership_for_user(self):
-        additional_headers = {"X-API-Key": self.api_key}
-        user_details_endpoint = (
-            "https://www.bungie.net/Platform/User/GetMembershipsForCurrentUser/"
+        access_expires_at = datetime.datetime.fromisoformat(
+            token_data["access_expires_at"].rstrip("Z")
         )
-        response = self.auth_session.get(
-            url=user_details_endpoint, headers=additional_headers
+        refresh_expires_at = datetime.datetime.fromisoformat(
+            token_data["refresh_expires_at"].rstrip("Z")
         )
 
-        data = response.json()["Response"]
-        primary_mem_id = data["primaryMembershipId"]
+        access_expired = (
+            datetime.datetime.now(datetime.timezone.utc) >= access_expires_at
+        )
+        refresh_expired = (
+            datetime.datetime.now(datetime.timezone.utc) >= refresh_expires_at
+        )
 
-        mem_type, mem_id = None, None
+        refresh_token = token_data["refresh_token"]
 
-        for membership in data["destinyMemberships"]:
-            if membership["membershipId"] == primary_mem_id:
-                mem_id = membership["membershipId"]
-                mem_type = membership["membershipType"]
-                break
+        if access_expired and not refresh_expired:
+            token_data = self._refresh_token(refresh_token)
+        elif refresh_expired:
+            token_data = self._get_access_token()
 
-        return mem_id, mem_type
+        return token_data["access_token"]
 
-    def query_protected_endpoint(self, endpoint: str):
-        additional_headers = {"X-API-Key": self.api_key}
-        res = self.auth_session.get(url=endpoint, headers=additional_headers)
+    def _get_access_token(self):
+        self._flask_thread.start()
 
-        return res.json()
+        webbrowser.open(self.authorization_url)
+
+        self._auth_code_callback_event.wait()
+
+        auth_string = f"{self.client_id}:{self.client_secret}"
+        b64_auth = base64.b64encode(auth_string.encode()).decode()
+
+        headers = {
+            "Authorization": f"Basic {b64_auth}",
+            "Content-Type": "application/x-www-form-urlencoded",
+        }
+
+        data = {"grant_type": "authorization_code", "code": auth_code}
+
+        res = requests.post(self.token_url, headers=headers, data=data)
+
+        res_json = res.json()
+
+        now = datetime.datetime.now(datetime.timezone.utc)
+        access_expires_at = now + timedelta(seconds=res_json["expires_in"])
+        refresh_expires_at = now + timedelta(seconds=res_json["refresh_expires_in"])
+
+        res_json["access_expires_at"] = access_expires_at.isoformat() + "Z"
+        res_json["refresh_expires_at"] = refresh_expires_at.isoformat() + "Z"
+
+        with open(self.auth_token_filepath, "w") as f:
+            json.dump(res_json, f, indent=2)
+
+        return res_json
+
+    def _refresh_token(self, refresh_token):
+        auth_string = f"{self.client_id}:{self.client_secret}"
+        b64_auth = base64.b64encode(auth_string.encode()).decode()
+
+        headers = {
+            "Authorization": f"Basic {b64_auth}",
+            "Content-Type": "application/x-www-form-urlencoded",
+        }
+
+        data = {"grant_type": "refresh_token", "refresh_token": refresh_token}
+
+        res = requests.post(self.token_url, headers=headers, data=data)
+
+        res_json = res.json()
+
+        now = datetime.datetime.now(datetime.timezone.utc)
+        access_expires_at = now + timedelta(seconds=res_json["expires_in"])
+        refresh_expires_at = now + timedelta(seconds=res_json["refresh_expires_in"])
+
+        res_json["access_expires_at"] = access_expires_at.isoformat() + "Z"
+        res_json["refresh_expires_at"] = refresh_expires_at.isoformat() + "Z"
+
+        with open(self.auth_token_filepath, "w") as f:
+            json.dump(res_json, f, indent=2)
+
+        return res_json

@@ -5,10 +5,10 @@ from configparser import ConfigParser
 from PyQt5.QtWidgets import QApplication
 
 from src.armor_cleaner import ArmorFilter
+from src.auth import BungieOAuth
 from src.controller import AppController
 from src.destiny_api import ManifestBrowser
 from src.ui import AppUI
-from src.auth import BungieAuth
 
 
 def main():
@@ -21,8 +21,11 @@ def main():
 
     app = QApplication(sys.argv)
 
+    cert_filepath = os.path.join("src", "ssl", "localhost.crt")
+    key_filepath = os.path.join("src", "ssl", "localhost.key")
+
     ui = AppUI(config_parser=configur)
-    auth = BungieAuth()
+    auth = BungieOAuth(cert_filepath=cert_filepath, key_filepath=key_filepath)
     manifest_browser = ManifestBrowser()
     armor_filter = ArmorFilter()
 
