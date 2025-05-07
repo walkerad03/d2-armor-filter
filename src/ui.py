@@ -4,6 +4,7 @@ from PyQt5.QtCore import Qt, pyqtSignal
 from PyQt5.QtGui import QFontMetrics, QIcon, QPainter, QPixmap
 from PyQt5.QtSvg import QSvgWidget
 from PyQt5.QtWidgets import (
+    QAction,
     QApplication,
     QCheckBox,
     QGridLayout,
@@ -12,6 +13,7 @@ from PyQt5.QtWidgets import (
     QLabel,
     QLineEdit,
     QMainWindow,
+    QMenu,
     QMessageBox,
     QPushButton,
     QScrollArea,
@@ -98,19 +100,26 @@ class HoverImage(QLabel):
         self.setFixedSize(size, size)
         super().resizeEvent(event)
 
-    def mousePressEvent(self, event):
-        if event.button() == Qt.LeftButton and self.armor_id:
-            QApplication.clipboard().setText("id:" + self.armor_id)
-            self.setToolTip(f"Copied ID: <b>{self.armor_id}</b>")
-            self.setStyleSheet("border: 2px solid #00ffaa;")
-        super().mousePressEvent(event)
+    def contextMenuEvent(self, event):
+        context_menu = QMenu(self)
+
+        copy_action = QAction("Copy DIM ID", self)
+
+        context_menu.addAction(copy_action)
+
+        copy_action.triggered.connect(
+            lambda: QApplication.clipboard().setText("id:" + self.armor_id)
+        )
+
+        context_menu.exec_(event.globalPos())
+        super().contextMenuEvent(event)
 
 
 class AppUI(QMainWindow):
     reload_triggered = pyqtSignal()
     process_triggered = pyqtSignal()
     copy_query_triggered = pyqtSignal()
-    
+
     disc_slider_changed = pyqtSignal(int)
     quality_updated = pyqtSignal(float)
 
@@ -131,12 +140,8 @@ class AppUI(QMainWindow):
 
     def initUI(self):
         # Get default values from config file
-        default_quality = self.configur.getfloat(
-            "values", "DEFAULT_MAX_QUALITY"
-        )
-        default_disc_target = self.configur.getint(
-            "values", "DEFAULT_DISC_TARGET"
-        )
+        default_quality = self.configur.getfloat("values", "DEFAULT_MAX_QUALITY")
+        default_disc_target = self.configur.getint("values", "DEFAULT_DISC_TARGET")
         default_ignore_tags_value = self.configur.getboolean("values", "IGNORE_TAGS")
 
         main_layout = QVBoxLayout()
@@ -149,9 +154,7 @@ class AppUI(QMainWindow):
         reload_section = QGroupBox()
         reload_layout = QVBoxLayout()
         self.reload_button = QPushButton("Reload Armor List", self)
-        self.reload_button.setToolTip(
-            "Get new armor stats from Bungie"
-        )
+        self.reload_button.setToolTip("Get new armor stats from Bungie")
 
         reload_layout.addWidget(self.reload_button)
 
