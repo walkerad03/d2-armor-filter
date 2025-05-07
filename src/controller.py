@@ -313,7 +313,7 @@ class AppController:
                 tooltip_body="Fetching item details...",
             )
 
-            self.ui.image_box.addWidget(placeholder, row, col)
+            self.ui.add_to_grid_at_coords(placeholder, row, col)
             self.image_placeholders[(hash_value, armor_id, row, col)] = placeholder
 
             idx += 1
@@ -392,9 +392,5 @@ class AppController:
                     tooltip_stats=stats_block,
                     armor_id=armor_id,
                 )
-                self.ui.image_box.replaceWidget(label, new_label)
+                self.ui.image_grid.replaceWidget(label, new_label)
                 label.deleteLater()
-                self.ui.output_box.setText(
-                    f"Found {self.ui.image_box.count()} Armor Pieces. "
-                    "DIM query copied to clipboard."
-                )

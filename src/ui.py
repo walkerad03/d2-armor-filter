@@ -1,6 +1,6 @@
 from configparser import ConfigParser
 
-from PyQt5.QtCore import Qt, pyqtSignal
+from PyQt5.QtCore import QSize, Qt, pyqtSignal
 from PyQt5.QtGui import QFontMetrics, QIcon, QPainter, QPixmap
 from PyQt5.QtSvg import QSvgWidget
 from PyQt5.QtWidgets import (
@@ -115,6 +115,144 @@ class HoverImage(QLabel):
         super().contextMenuEvent(event)
 
 
+class QualityInputSection(QGroupBox):
+    value_changed = pyqtSignal(float)
+
+    def __init__(self, default_quality=1, parent=None):
+        super().__init__(parent)
+
+        quality_layout = QVBoxLayout()
+
+        quality_label = QLabel("Maximum Quality")
+        self.quality_input = QLineEdit()
+        self.quality_input.setText(str(default_quality))
+        self.quality_input.textChanged.connect(self._on_text_changed)
+
+        quality_layout.addWidget(quality_label)
+        quality_layout.addWidget(self.quality_input)
+
+        self.setToolTip(
+            "Most sensitive option. Lower quality will be more restrictive.\n"
+            "<5=very relaxed\n<2=somewhat strict\n<1=extremely strict"
+        )
+        self.setLayout(quality_layout)
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+
+    def get_value(self) -> float:
+        try:
+            return float(self.quality_input.text())
+        except ValueError:
+            return 0
+
+    def _on_text_changed(self, text):
+        try:
+            value = float(text)
+            self.value_changed.emit(value)
+        except ValueError:
+            pass
+
+
+class ReloadButtonSection(QGroupBox):
+    button_clicked = pyqtSignal()
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        reload_layout = QVBoxLayout()
+        reload_button = QPushButton("Reload Armor List", self)
+        reload_button.setToolTip("Get new armor stats from Bungie")
+        reload_button.clicked.connect(self._on_button_clicked)
+
+        reload_layout.addWidget(reload_button)
+
+        self.setLayout(reload_layout)
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+
+    def _on_button_clicked(self):
+        self.button_clicked.emit()
+
+
+class DisciplineInputSection(QGroupBox):
+    value_changed = pyqtSignal(int)
+
+    def __init__(self, default_disc_target: float, parent=None):
+        super().__init__(parent)
+
+        disc_stat_layout = QVBoxLayout()
+
+        self.disc_stat_label = QLabel(f"Discipline Target: {default_disc_target}")
+        self.disc_stat_slider = QSlider(Qt.Horizontal)
+        self.disc_stat_slider.setRange(2, 30)
+        self.disc_stat_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
+        self.disc_stat_slider.setValue(default_disc_target)
+        self.disc_stat_slider.valueChanged.connect(self._on_value_changed)
+
+        disc_stat_layout.addWidget(self.disc_stat_label)
+        disc_stat_layout.addWidget(self.disc_stat_slider)
+
+        self.setToolTip(
+            "Base discipline above this level will not be penalized by the filter."
+        )
+        self.setLayout(disc_stat_layout)
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+
+    def get_value(self) -> int:
+        try:
+            return int(self.disc_stat_slider.value())
+        except ValueError:
+            return 0
+
+    def _on_value_changed(self, text):
+        try:
+            value = int(text)
+            self.disc_stat_label.setText(f"Discipline Target: {value}")
+            self.value_changed.emit(value)
+        except ValueError:
+            pass
+
+
+class ImageGrid(QScrollArea):
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setWidgetResizable(True)
+
+        self.image_size = QSize(64, 64)
+        self.margin = 4
+        self.image_labels = []
+
+        self.container = QWidget()
+        self.grid_layout = QGridLayout()
+        self.grid_layout.setSpacing(self.margin)
+        self.grid_layout.setContentsMargins(
+            self.margin, self.margin, self.margin, self.margin
+        )
+        self.container.setLayout(self.grid_layout)
+
+        self.setWidget(self.container)
+
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+
+    def add_image(self, image: HoverImage):
+        NUM_COLS = 7
+
+        idx = self.grid_layout.count()
+        row = idx // NUM_COLS
+        col = idx % NUM_COLS
+
+        self.grid_layout.addWidget(image, row, col)
+
+    def add_image_at_coords(self, image, row, col):
+        self.grid_layout.addWidget(image, row, col)
+
+    def clear_grid(self):
+        for i in reversed(range(self.grid_layout.count())):
+            self.grid_layout.itemAt(i).widget().setParent(None)
+
+    def replaceWidget(self, label, newlabel):
+        self.grid_layout.replaceWidget(label, newlabel)
+
+
 class AppUI(QMainWindow):
     reload_triggered = pyqtSignal()
     process_triggered = pyqtSignal()
@@ -151,57 +289,18 @@ class AppUI(QMainWindow):
         # Setup left layout and upload button
         left_layout = QVBoxLayout()
 
-        reload_section = QGroupBox()
-        reload_layout = QVBoxLayout()
-        self.reload_button = QPushButton("Reload Armor List", self)
-        self.reload_button.setToolTip("Get new armor stats from Bungie")
-
-        reload_layout.addWidget(self.reload_button)
-
-        reload_section.setLayout(reload_layout)
-        reload_section.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
-
-        left_layout.addWidget(reload_section)
+        self.reload_section = ReloadButtonSection()
+        left_layout.addWidget(self.reload_section)
 
         # Create maximum quality option
-        quality_section = QGroupBox()
-        quality_layout = QVBoxLayout()
-
-        quality_label = QLabel("Maximum Quality")
-        self.quality_input = QLineEdit()
-        self.quality_input.setText(str(default_quality))
-        quality_section.setToolTip(
-            "Most sensitive option. Lower quality will be more restrictive.\n<5=very relaxed\n<2=somewhat strict\n<1=extremely strict"
-        )
-
-        quality_layout.addWidget(quality_label)
-        quality_layout.addWidget(self.quality_input)
-
-        quality_section.setLayout(quality_layout)
-        quality_section.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
-
-        left_layout.addWidget(quality_section)
+        self.quality_section = QualityInputSection(default_quality=default_quality)
+        left_layout.addWidget(self.quality_section)
 
         # Create slider and label for discipline target values
-        disc_stat_section = QGroupBox()
-        disc_stat_layout = QVBoxLayout()
-
-        self.disc_stat_label = QLabel(f"Discipline Target: {default_disc_target}")
-        self.disc_stat_slider = QSlider(Qt.Horizontal)
-        self.disc_stat_slider.setRange(2, 30)
-        self.disc_stat_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
-        self.disc_stat_slider.setValue(default_disc_target)
-        disc_stat_section.setToolTip(
-            "Base discipline above this level will not be penalized by the filter"
+        self.disc_stat_section = DisciplineInputSection(
+            default_disc_target=default_disc_target
         )
-
-        disc_stat_layout.addWidget(self.disc_stat_label)
-        disc_stat_layout.addWidget(self.disc_stat_slider)
-
-        disc_stat_section.setLayout(disc_stat_layout)
-        disc_stat_section.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
-
-        left_layout.addWidget(disc_stat_section)
+        left_layout.addWidget(self.disc_stat_section)
 
         # Generate Checkbox Grid
         checkbox_section = QGroupBox()
@@ -303,18 +402,11 @@ class AppUI(QMainWindow):
         # Create right layout and add widgets
         right_layout = QVBoxLayout()
 
-        image_container = QWidget()
-        self.image_box = QGridLayout()
-        image_container.setLayout(self.image_box)
-
-        scroll_area = QScrollArea()
-        scroll_area.setWidget(image_container)
-        scroll_area.setWidgetResizable(True)
-        scroll_area.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
+        self.image_grid = ImageGrid()
+        right_layout.addWidget(self.image_grid)
 
         self.run_button = QPushButton("Clean Armor")
         self.run_button.setToolTip("Press after setting all other settings")
-        right_layout.addWidget(scroll_area)
         right_layout.addWidget(self.run_button)
 
         # Set right layout options
@@ -349,11 +441,11 @@ class AppUI(QMainWindow):
         main_layout.addWidget(bottom_widget)
 
         # set connections
-        self.quality_input.editingFinished.connect(self.update_quality_config)
-        self.disc_stat_slider.valueChanged.connect(self.update_disc_slider)
+        self.quality_section.value_changed.connect(self.update_quality_config)
+        self.disc_stat_section.value_changed.connect(self.update_disc_slider)
         self.ignore_tags_toggle.clicked.connect(self.update_ignore_tags)
 
-        self.reload_button.clicked.connect(self.trigger_armor_refresh)
+        self.reload_section.button_clicked.connect(self.trigger_armor_refresh)
         self.run_button.clicked.connect(self.trigger_process)
         self.copy_all_button.clicked.connect(self.copy_query_to_clipboard)
 
@@ -377,7 +469,7 @@ class AppUI(QMainWindow):
         self.copy_query_triggered.emit()
 
     def update_quality_config(self):
-        value = float(self.quality_input.text())
+        value = self.quality_section.get_value()
         self.quality_updated.emit(value)
 
     def update_config_from_checkbox(self, row, col):
@@ -411,7 +503,6 @@ class AppUI(QMainWindow):
         return grid_values
 
     def update_disc_slider(self, value):
-        self.disc_stat_label.setText(f"Discipline Target: {value}")
         self.disc_slider_changed.emit(value)
 
     def trigger_armor_refresh(self):
@@ -424,12 +515,6 @@ class AppUI(QMainWindow):
         QMessageBox.warning(self, title, body)
 
     def add_to_photo_grid(self, image_path: str, overlay_path: str, item_data: dict):
-        NUM_COLS = 7
-
-        idx = self.image_box.count()
-        row = idx // NUM_COLS
-        col = idx % NUM_COLS
-
         label = HoverImage(
             base_pixmap_path=image_path,
             overlay_pixmap_path=overlay_path,
@@ -437,11 +522,7 @@ class AppUI(QMainWindow):
             tooltip_title=item_data["name"],
             tooltip_body=item_data["flavorText"],
         )
-        self.image_box.addWidget(label, row, col)
-
-        self.output_box.setText(
-            f"Found {idx} Armor Pieces. DIM query copied to clipboard."
-        )
+        self.image_grid.add_image(label)
 
     def set_process_enabled_state(self, enabled: bool):
         self.run_button.setEnabled(enabled)
@@ -450,5 +531,7 @@ class AppUI(QMainWindow):
         QApplication.clipboard().setText(to_copy)
 
     def clear_photo_grid(self):
-        for i in reversed(range(self.image_box.count())):
-            self.image_box.itemAt(i).widget().setParent(None)
+        self.image_grid.clear_grid()
+
+    def add_to_grid_at_coords(self, image, row, col):
+        self.image_grid.add_image_at_coords(image, row, col)
