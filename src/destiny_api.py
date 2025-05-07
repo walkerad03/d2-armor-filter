@@ -257,7 +257,7 @@ class ManifestBrowser:
         res = requests.get(url, headers=headers)
 
         data = res.json()["Response"]
-        print(data)
+
         primary_mem_id = data["primaryMembershipId"]
 
         mem_type, mem_id = None, None
