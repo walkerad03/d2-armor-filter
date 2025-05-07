@@ -7,6 +7,10 @@ import webbrowser
 from datetime import timedelta
 
 import requests
+from cryptography import x509
+from cryptography.hazmat.primitives import hashes, serialization
+from cryptography.hazmat.primitives.asymmetric import rsa
+from cryptography.x509.oid import NameOID
 from dotenv import load_dotenv
 from flask import Flask, request
 
@@ -44,9 +48,61 @@ class BungieOAuth:
             return "You can close this window.", 200
 
     def _run_flask_app(self):
+        ssl_dir_path = os.path.join("data", "ssl")
+
+        if not os.path.exists(ssl_dir_path):
+            os.makedirs(ssl_dir_path)
+
+        key = rsa.generate_private_key(
+            public_exponent=65537,
+            key_size=2048,
+        )
+
+        subject = issuer = x509.Name(
+            [
+                x509.NameAttribute(NameOID.COUNTRY_NAME, "US"),
+                x509.NameAttribute(NameOID.STATE_OR_PROVINCE_NAME, "North Carolina"),
+                x509.NameAttribute(NameOID.LOCALITY_NAME, "Chapel Hill"),
+                x509.NameAttribute(NameOID.ORGANIZATION_NAME, "SelfSigned Inc."),
+                x509.NameAttribute(NameOID.COMMON_NAME, "localhost"),
+            ]
+        )
+
+        cert = (
+            x509.CertificateBuilder()
+            .subject_name(subject)
+            .issuer_name(issuer)
+            .public_key(key.public_key())
+            .serial_number(x509.random_serial_number())
+            .not_valid_before(datetime.datetime.now(datetime.timezone.utc))
+            .not_valid_after(
+                datetime.datetime.now(datetime.timezone.utc) + timedelta(days=365)
+            )
+            .add_extension(
+                x509.SubjectAlternativeName([x509.DNSName("localhost")]),
+                critical=False,
+            )
+            .sign(key, hashes.SHA256())
+        )
+
+        with open(os.path.join(ssl_dir_path, "localhost.key"), "wb") as f:
+            f.write(
+                key.private_bytes(
+                    encoding=serialization.Encoding.PEM,
+                    format=serialization.PrivateFormat.TraditionalOpenSSL,
+                    encryption_algorithm=serialization.NoEncryption(),
+                )
+            )
+
+        with open(os.path.join(ssl_dir_path, "localhost.crt"), "wb") as f:
+            f.write(cert.public_bytes(serialization.Encoding.PEM))
+
         self.app.run(
             port=7777,
-            ssl_context=(self.cert_filepath, self.key_filepath),
+            ssl_context=(
+                os.path.join(ssl_dir_path, "localhost.crt"),
+                os.path.join(ssl_dir_path, "localhost.key"),
+            ),
             debug=True,
             use_reloader=False,
         )
