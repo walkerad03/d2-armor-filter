@@ -1,8 +1,10 @@
 import os
+import threading
+import time
 from typing import Optional
 
 import polars as pl
-from PyQt5.QtCore import QThreadPool
+from PyQt5.QtCore import QThreadPool, QTimer
 from tqdm import tqdm
 
 from src.armor_cleaner import ArmorFilter, FilterParams
@@ -65,7 +67,7 @@ class AppController:
         self.max_quality: Optional[float] = None
         self.target_discipline: Optional[int] = None
 
-        self.always_keep_highest_power = True
+        self.always_keep_highest_power = False
         self.build_flags = {
             "Hunter": {"MobRes": True, "ResRec": True, "MobRec": False},
             "Warlock": {"MobRes": False, "ResRec": True, "MobRec": False},
@@ -94,10 +96,16 @@ class AppController:
 
         self.df = self.create_armor_df()
 
+        self.handle_process()
+
         self.ui.set_process_enabled_state(True)
 
     def start_app(self):
         self.ui.show()
+
+        self.refresh_timer = QTimer()
+        self.refresh_timer.timeout.connect(self.handle_armor_refresh)
+        self.refresh_timer.start(30 * 1000)
 
     def create_armor_df(self) -> pl.DataFrame:
         res = self.api.query_protected_endpoint(
