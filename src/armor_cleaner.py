@@ -99,17 +99,24 @@ class ArmorFilter:
         class_items_to_delete = self.filter_class_items(df=class_armor)
 
         return pl.concat(
-            [class_items_to_delete, exotics_to_delete, legendaries_to_delete, mod_armor_to_delete]
+            [
+                # class_items_to_delete,
+                exotics_to_delete,
+                legendaries_to_delete,
+                mod_armor_to_delete,
+            ]
         )
 
     def filter_mod_armor(self, df: pl.DataFrame, max_quality: float) -> pl.DataFrame:
         result = (
-            df.with_columns([
-                pl.col("Quality")
-                .rank("ordinal", descending=False)
-                .over(["Equippable", "Source", "ItemSubType"])
-                .alias("Quality Rank")
-            ])
+            df.with_columns(
+                [
+                    pl.col("Quality")
+                    .rank("ordinal", descending=False)
+                    .over(["Equippable", "Source", "ItemSubType"])
+                    .alias("Quality Rank")
+                ]
+            )
             .filter(pl.col("Quality Rank") > 1)
             .filter(pl.col("Quality") > max_quality)
             .select(pl.col("Id", "Hash"))
@@ -133,30 +140,34 @@ class ArmorFilter:
             "guardiangames",
         ]
 
-        artifice_df = df.filter(pl.col("IsArtifice"))
-
-        highest_power_rows = (
-            artifice_df.sort("Power", descending=True).group_by("Equippable").first()
-        )
-
-        output_df = artifice_df.join(
-            highest_power_rows, on=["Equippable", "Power"], how="anti"
-        )
-
-        items_to_keep = (
-            output_df.filter(pl.col("Source").is_in(sources_to_keep))
-            .sort(["Power", "Energy Capacity"], descending=[True, True])
+        artifice = df.filter(pl.col("IsArtifice"))
+        artifice_to_drop = (
+            artifice.sort(["Power", "Energy Capacity"], descending=True)
             .group_by(["Source", "Equippable"])
             .first()
         )
 
-        output_df = output_df.join(
-            items_to_keep, on=["Equippable", "Source", "Power"], how="anti"
+        source_items = df.filter(pl.col("Source").is_in(sources_to_keep))
+
+        to_drop_source = (
+            source_items.sort(
+                ["Source", "Equippable", "Energy Capacity", "Power"],
+                descending=True,
+            )
+            .group_by(["Source", "Equippable"])
+            .first()
         )
 
-        output_df = output_df.select(pl.col(["Id", "Hash"]))
+        print(artifice_to_drop.columns)
+        print(to_drop_source.columns)
 
-        return output_df
+        to_remove = pl.concat(
+            [artifice_to_drop, to_drop_source], how="vertical"
+        ).unique(subset=["Id"])
+
+        output_df = to_remove.select(["Id", "Hash"])
+
+        return to_remove
 
     def filter_exotic_armor(self, df: pl.DataFrame, max_quality: float) -> pl.DataFrame:
         best_exotic_rows = df.select(
