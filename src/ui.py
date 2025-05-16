@@ -179,6 +179,34 @@ class ReloadButtonSection(QGroupBox):
         self.button_clicked.emit()
 
 
+class IgnoreCommonsSection(QGroupBox):
+    button_checked = pyqtSignal()
+
+    def __init__(self, default_ignore_tags_value: bool, parent=None):
+        super().__init__(parent)
+
+        layout = QHBoxLayout()
+
+        label = QLabel("Ignore Common Armor")
+
+        self.button = QCheckBox()
+        self.setToolTip("Ignore White Armor Pieces")
+        self.button.setChecked(default_ignore_tags_value)
+        self.button.stateChanged.connect(self._on_button_checked)
+
+        layout.addWidget(label)
+        layout.addWidget(self.button)
+
+        self.setLayout(layout)
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+
+    def get_value(self):
+        return self.button.checkState()
+
+    def _on_button_checked(self):
+        self.button_checked.emit()
+
+
 class DisciplineInputSection(QGroupBox):
     value_changed = pyqtSignal(int)
 
@@ -252,6 +280,9 @@ class ImageGrid(QScrollArea):
     def add_image_at_coords(self, image, row, col):
         self.grid_layout.addWidget(image, row, col)
 
+        self.grid_layout.setRowStretch(self.grid_layout.rowCount(), 1)
+        self.grid_layout.setColumnStretch(self.grid_layout.columnCount(), 1)
+
     def clear_grid(self):
         for i in reversed(range(self.grid_layout.count())):
             self.grid_layout.itemAt(i).widget().setParent(None)
@@ -267,6 +298,7 @@ class AppUI(QMainWindow):
 
     disc_slider_changed = pyqtSignal(int)
     quality_updated = pyqtSignal(float)
+    ignore_commons_updated = pyqtSignal(bool)
 
     def __init__(self, config_parser: ConfigParser):
         super().__init__()
@@ -287,7 +319,9 @@ class AppUI(QMainWindow):
         # Get default values from config file
         default_quality = self.configur.getfloat("values", "DEFAULT_MAX_QUALITY")
         default_disc_target = self.configur.getint("values", "DEFAULT_DISC_TARGET")
-        default_ignore_tags_value = self.configur.getboolean("values", "IGNORE_TAGS")
+        default_ignore_commons_value = self.configur.getboolean(
+            "values", "IGNORE_COMMONS"
+        )
 
         main_layout = QVBoxLayout()
         top_layout = QHBoxLayout()
@@ -368,23 +402,8 @@ class AppUI(QMainWindow):
 
         left_layout.addWidget(checkbox_section)
 
-        # Ignore Tags button
-        ignore_tags_section = QGroupBox()
-        ignore_tags_layout = QHBoxLayout()
-
-        ignore_tags_label = QLabel("Ignore Tags")
-        self.ignore_tags_toggle = QCheckBox()
-        self.ignore_tags_toggle.setChecked(default_ignore_tags_value)
-
-        ignore_tags_section.setToolTip("Filter items tagged as Archive or Infuse")
-
-        ignore_tags_layout.addWidget(ignore_tags_label)
-        ignore_tags_layout.addWidget(self.ignore_tags_toggle)
-
-        ignore_tags_section.setLayout(ignore_tags_layout)
-        ignore_tags_section.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
-
-        left_layout.addWidget(ignore_tags_section)
+        self.ignore_commons_section = IgnoreCommonsSection(default_ignore_commons_value)
+        left_layout.addWidget(self.ignore_commons_section)
 
         copy_all_section = QGroupBox()
         copy_all_layout = QHBoxLayout()
@@ -450,7 +469,7 @@ class AppUI(QMainWindow):
         # set connections
         self.quality_section.value_changed.connect(self.update_quality_config)
         self.disc_stat_section.value_changed.connect(self.update_disc_slider)
-        self.ignore_tags_toggle.clicked.connect(self.update_ignore_tags)
+        self.ignore_commons_section.button_checked.connect(self.update_ignore_commons)
 
         self.reload_section.button_clicked.connect(self.trigger_armor_refresh)
         self.run_button.clicked.connect(self.trigger_process)
@@ -479,19 +498,16 @@ class AppUI(QMainWindow):
         value = self.quality_section.get_value()
         self.quality_updated.emit(value)
 
+    def update_ignore_commons(self):
+        value = self.ignore_commons_section.get_value()
+        self.ignore_commons_updated.emit(value)
+
     def update_config_from_checkbox(self, row, col):
         section = self.class_keys[col]
         key = self.config_keys[row]
         value = self.checkboxes[row][col].isChecked()
 
         self.configur.set(section, key, str(value))
-        with open("config.ini", "w") as configfile:
-            self.configur.write(configfile)
-
-    def update_ignore_tags(self):
-        value = self.ignore_tags_toggle.isChecked()
-
-        self.configur.set("values", "ignore_tags", str(value))
         with open("config.ini", "w") as configfile:
             self.configur.write(configfile)
 

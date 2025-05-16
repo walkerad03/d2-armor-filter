@@ -68,6 +68,7 @@ class AppController:
         self.max_quality: Optional[float] = None
         self.target_discipline: Optional[int] = None
 
+        self.ignore_common_armor = self.configur.getboolean("values", "IGNORE_COMMONS")
         self.always_keep_highest_power = False
         self.build_flags = {
             "Hunter": {"MobRes": True, "ResRec": True, "MobRec": False},
@@ -88,6 +89,7 @@ class AppController:
         self.ui.copy_query_triggered.connect(self.handle_copy_query)
         self.ui.disc_slider_changed.connect(self.handle_disc_slider_change)
         self.ui.quality_updated.connect(self.handle_quality_change)
+        self.ui.ignore_commons_updated.connect(self.handle_ignore_commons_change)
 
     def handle_armor_refresh(self) -> None:
         self.ui.set_process_enabled_state(False)
@@ -265,6 +267,12 @@ class AppController:
         with open("config.ini", "w") as configfile:
             self.configur.write(configfile)
 
+    def handle_ignore_commons_change(self, value):
+        self.ignore_common_armor = value
+        self.configur.set("values", "IGNORE_COMMONS", str(value))
+        with open("config.ini", "w") as configfile:
+            self.configur.write(configfile)
+
     def handle_copy_query(self) -> None:
         if not self.text_result:
             self.ui.show_warning(title="Error", body="Run the filter first")
@@ -281,6 +289,7 @@ class AppController:
         params = FilterParams(
             target_discipline=self.target_discipline,
             max_quality=self.max_quality,
+            ignore_common_armor=self.ignore_common_armor,
             always_keep_highest_power=self.always_keep_highest_power,
             build_flags=self.build_flags,
         )

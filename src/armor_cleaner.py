@@ -32,6 +32,7 @@ class FilterParams:
     target_discipline: int
     max_quality: float
 
+    ignore_common_armor: bool
     always_keep_highest_power: bool
     build_flags: dict[str, dict[str, bool]]
 
@@ -47,6 +48,9 @@ class ArmorFilter:
 
         if params.always_keep_highest_power:
             working_df = self.drop_highest_power_by_type(working_df)
+
+        if params.ignore_common_armor:
+            working_df = self.drop_common_armor(working_df)
 
         """
         Remove Exotic Class Items from consideration. This is not a feature I want to
@@ -275,6 +279,10 @@ class ArmorFilter:
         )
 
         output_df = df.join(highest_power_rows, on=["ItemSubType", "Power"], how="anti")
+        return output_df
+
+    def drop_common_armor(self, df: pl.DataFrame) -> pl.DataFrame:
+        output_df = df.filter(pl.col("Tier") != "Common")
         return output_df
 
     def split_armor_categories(
