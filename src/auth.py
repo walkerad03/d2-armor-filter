@@ -45,6 +45,7 @@ class BungieOAuth:
             global auth_code
             auth_code = request.args.get("code")
             self._auth_code_callback_event.set()
+            threading.Thread(target=self._shutdown_flask).start()
             return "You can close this window.", 200
 
     def _run_flask_app(self):
@@ -106,6 +107,12 @@ class BungieOAuth:
             debug=True,
             use_reloader=False,
         )
+
+    def _shutdown_flask(self):
+        func = request.environ.get("werkzeug.server.shutdown")
+        if func is None:
+            raise RuntimeError("Not running with the Werkzeug Server")
+        func()
 
     def authenticate(self):
         if not os.path.exists(self.auth_token_filepath):
