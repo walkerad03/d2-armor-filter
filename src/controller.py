@@ -37,6 +37,7 @@ class AppController:
         'Source: "King\'s Fall" Raid': "kingsfall",
         "Source: Last Wish raid.": "lastwish",
         "Source: Guardian Games 2025": "guardiangames",
+        "Source: Guardian Games": "guardiangames",
     }
 
     def __init__(

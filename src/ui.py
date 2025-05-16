@@ -104,11 +104,18 @@ class HoverImage(QLabel):
         context_menu = QMenu(self)
 
         copy_action = QAction("Copy DIM ID", self)
+        tag_action = QAction("Tag as Ignore", self)
 
         context_menu.addAction(copy_action)
+        context_menu.addAction(tag_action)
 
         copy_action.triggered.connect(
             lambda: QApplication.clipboard().setText("id:" + self.armor_id)
+        )
+        tag_action.triggered.connect(
+            lambda: QMessageBox.warning(
+                self, "No Functionality", "This has not been implemented yet."
+            )
         )
 
         context_menu.exec_(event.globalPos())

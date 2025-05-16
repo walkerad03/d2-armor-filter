@@ -74,12 +74,12 @@ class ArmorFilter:
             build_flags=params.build_flags,
         )
 
+        normal_and_artifice = pl.concat([normal_armor, artifice_armor])
+
         exotics_armor_df = artifice_armor.filter(pl.col("Tier") == "Exotic")
         exotics_to_delete = self.filter_exotic_armor(
             df=exotics_armor_df, max_quality=params.max_quality
         )
-
-        normal_and_artifice = pl.concat([normal_armor, artifice_armor])
 
         normal_legendaries = normal_and_artifice.filter(
             (pl.col("Source").is_null()) & (pl.col("Tier") != "Exotic")
@@ -100,7 +100,7 @@ class ArmorFilter:
 
         return pl.concat(
             [
-                # class_items_to_delete,
+                class_items_to_delete,
                 exotics_to_delete,
                 legendaries_to_delete,
                 mod_armor_to_delete,
@@ -108,23 +108,22 @@ class ArmorFilter:
         )
 
     def filter_mod_armor(self, df: pl.DataFrame, max_quality: float) -> pl.DataFrame:
-        result = (
-            df.with_columns(
-                [
-                    pl.col("Quality")
-                    .rank("ordinal", descending=False)
-                    .over(["Equippable", "Source", "ItemSubType"])
-                    .alias("Quality Rank")
-                ]
-            )
-            .filter(pl.col("Quality Rank") > 1)
-            .filter(pl.col("Quality") > max_quality)
-            .select(pl.col("Id", "Hash"))
-        )
+        column_order = df.columns
 
-        return result
+        armor_to_keep = (
+            df.sort(["Quality"], descending=False)
+            .group_by(["ItemSubType", "Equippable", "Source"])
+            .first()
+            .select(column_order)
+        )
+        armor_to_drop = df.join(armor_to_keep, how="anti", on="Id").filter(
+            pl.col("Quality") > max_quality
+        )
+        output_df = armor_to_drop.select(pl.col(["Id", "Hash"]))
+        return output_df
 
     def filter_class_items(self, df: pl.DataFrame) -> pl.DataFrame:
+        column_order = df.columns
         sources_to_keep = [
             "gardenofsalvation",
             "dreaming",
@@ -141,62 +140,74 @@ class ArmorFilter:
         ]
 
         artifice = df.filter(pl.col("IsArtifice"))
-        artifice_to_drop = (
-            artifice.sort(["Power", "Energy Capacity"], descending=True)
+
+        artifice_to_keep = (
+            artifice.sort(["Energy Capacity", "Power"], descending=True)
             .group_by(["Source", "Equippable"])
             .first()
+            .select(column_order)
         )
+        artifice_to_drop = artifice.join(artifice_to_keep, how="anti", on="Id")
 
-        source_items = df.filter(pl.col("Source").is_in(sources_to_keep))
+        regular_items = df.filter(~pl.col("IsArtifice"))
 
-        to_drop_source = (
-            source_items.sort(
-                ["Source", "Equippable", "Energy Capacity", "Power"],
-                descending=True,
-            )
+        preferred_to_keep = (
+            regular_items.sort(["Energy Capacity", "Power"], descending=True)
+            .filter(pl.col("Source").is_in(sources_to_keep))
             .group_by(["Source", "Equippable"])
             .first()
+            .select(column_order)
+        )
+        fallback = (
+            regular_items.sort(["Energy Capacity", "Power"], descending=True)
+            .group_by("Source", "Equippable")
+            .first()
+            .select(column_order)
+        )
+        fallback_needed = fallback.join(preferred_to_keep, how="anti", on="Equippable")
+        regular_to_keep = pl.concat(
+            [preferred_to_keep, fallback_needed], how="vertical"
         )
 
-        print(artifice_to_drop.columns)
-        print(to_drop_source.columns)
+        regular_to_drop = regular_items.join(regular_to_keep, how="anti", on="Id")
 
-        to_remove = pl.concat(
-            [artifice_to_drop, to_drop_source], how="vertical"
-        ).unique(subset=["Id"])
+        to_remove = pl.concat([artifice_to_drop, regular_to_drop], how="vertical")
 
         output_df = to_remove.select(["Id", "Hash"])
 
-        return to_remove
+        return output_df
 
     def filter_exotic_armor(self, df: pl.DataFrame, max_quality: float) -> pl.DataFrame:
-        best_exotic_rows = df.select(
-            pl.all().top_k_by("Quality", k=2).over("Hash", mapping_strategy="explode")
+        column_order = df.columns
+
+        exotics_to_keep = (
+            df.sort(["Quality"], descending=False)
+            .group_by("Hash")
+            .head(2)
+            .select(column_order)
+        )
+        exotics_to_drop = df.join(exotics_to_keep, how="anti", on="Id").filter(
+            pl.col("Quality") > max_quality
         )
 
-        output_df = df.join(best_exotic_rows, on=["Hash", "Quality"], how="anti")
-
-        output_df = output_df.filter(pl.col("Quality") > max_quality)
-
-        output_df = output_df.select(pl.col(["Id", "Hash"]))
+        output_df = exotics_to_drop.select(pl.col(["Id", "Hash"]))
 
         return output_df
 
     def filter_normal_and_artifice(
         self, df: pl.DataFrame, max_quality: float
     ) -> pl.DataFrame:
-        best_armor_rows = df.select(
-            pl.all()
-            .top_k_by("Quality", k=1)
-            .over("ItemSubType", mapping_strategy="explode")
+        column_order = df.columns
+        armor_to_keep = (
+            df.sort(["Quality"], descending=False)
+            .group_by(["Equippable", "ItemSubType"])
+            .first()
+            .select(column_order)
         )
-
-        output_df = df.join(best_armor_rows, on=["Hash", "Quality"], how="anti")
-
-        output_df = output_df.filter(pl.col("Quality") > max_quality)
-
-        output_df = output_df.select(pl.col(["Id", "Hash"]))
-
+        armor_to_drop = df.join(armor_to_keep, how="anti", on="Id").filter(
+            pl.col("Quality") > max_quality
+        )
+        output_df = armor_to_drop.select(pl.col(["Id", "Hash"]))
         return output_df
 
     def compute_quality(
