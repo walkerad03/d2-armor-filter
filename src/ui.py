@@ -30,7 +30,7 @@ class HoverImage(QLabel):
         self,
         base_pixmap_path,
         overlay_pixmap_path=None,
-        image_size=64,
+        image_size=96,
         tooltip_title="",
         tooltip_body="",
         tooltip_stats="",
@@ -84,23 +84,23 @@ class HoverImage(QLabel):
         painter.end()
         self.setPixmap(combined)
 
-    def enterEvent(self, event):
+    def enterEvent(self, a0):
         self.setStyleSheet("border: 2px solid #00aaff;")
         self.setToolTip(f"""
                         <b>{self.tooltip_title}</b><br>{self.tooltip_body}<br>{self.tooltip_stats}
                         """)
-        super().enterEvent(event)
+        super().enterEvent(a0)
 
-    def leaveEvent(self, event):
+    def leaveEvent(self, a0):
         self.setStyleSheet("border: 2px solid transparent;")
-        super().leaveEvent(event)
+        super().leaveEvent(a0)
 
-    def resizeEvent(self, event):
+    def resizeEvent(self, a0):
         size = self.image_size
         self.setFixedSize(size, size)
-        super().resizeEvent(event)
+        super().resizeEvent(a0)
 
-    def contextMenuEvent(self, event):
+    def contextMenuEvent(self, ev):
         context_menu = QMenu(self)
 
         copy_action = QAction("Copy DIM ID", self)
@@ -118,14 +118,14 @@ class HoverImage(QLabel):
             )
         )
 
-        context_menu.exec_(event.globalPos())
-        super().contextMenuEvent(event)
+        context_menu.exec_(ev.globalPos())
+        super().contextMenuEvent(ev)
 
 
 class QualityInputSection(QGroupBox):
     value_changed = pyqtSignal(float)
 
-    def __init__(self, default_quality=1, parent=None):
+    def __init__(self, default_quality=1.0, parent=None):
         super().__init__(parent)
 
         quality_layout = QVBoxLayout()
@@ -251,7 +251,7 @@ class ImageGrid(QScrollArea):
         super().__init__(parent)
         self.setWidgetResizable(True)
 
-        self.image_size = QSize(64, 64)
+        self.image_size = QSize(96, 96)
         self.margin = 4
         self.image_labels = []
 
@@ -269,11 +269,11 @@ class ImageGrid(QScrollArea):
         self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
 
     def add_image(self, image: HoverImage):
-        NUM_COLS = 7
+        num_cols = self.get_num_cols()
 
         idx = self.grid_layout.count()
-        row = idx // NUM_COLS
-        col = idx % NUM_COLS
+        row = idx // num_cols
+        col = idx % num_cols
 
         self.grid_layout.addWidget(image, row, col)
 
@@ -283,12 +283,40 @@ class ImageGrid(QScrollArea):
         self.grid_layout.setRowStretch(self.grid_layout.rowCount(), 1)
         self.grid_layout.setColumnStretch(self.grid_layout.columnCount(), 1)
 
+    def get_num_cols(self):
+        cell_width = self.image_size.width() + self.margin
+        viewport_width = self.viewport().width() - self.margin
+
+        if cell_width == 0:
+            num_cols = 1
+        else:
+            num_cols = max(1, viewport_width // cell_width)
+
+        return num_cols
+
     def clear_grid(self):
         for i in reversed(range(self.grid_layout.count())):
             self.grid_layout.itemAt(i).widget().setParent(None)
 
     def replaceWidget(self, label, newlabel):
         self.grid_layout.replaceWidget(label, newlabel)
+
+
+class CheckboxGrid(QGroupBox):
+    value_changed = pyqtSignal(bool)
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+
+        layout = QGridLayout()
+
+        classes = ["Hunter", "Warlock", "Titan"]
+        for col, label in enumerate(classes):
+            layout.addWidget(QLabel(label), 0, col + 1)
+
+        self.setLayout(layout)
+        self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
+        self.setToolTip("Check any bottom bucket stat combos you wish to keep")
 
 
 class AppUI(QMainWindow):
@@ -316,7 +344,6 @@ class AppUI(QMainWindow):
         self.setCentralWidget(central_widget)
 
     def initUI(self):
-        # Get default values from config file
         default_quality = self.configur.getfloat("values", "DEFAULT_MAX_QUALITY")
         default_disc_target = self.configur.getint("values", "DEFAULT_DISC_TARGET")
         default_ignore_commons_value = self.configur.getboolean(
@@ -327,21 +354,21 @@ class AppUI(QMainWindow):
         top_layout = QHBoxLayout()
         bottom_layout = QHBoxLayout()
 
-        # Setup left layout and upload button
         left_layout = QVBoxLayout()
 
         self.reload_section = ReloadButtonSection()
         left_layout.addWidget(self.reload_section)
 
-        # Create maximum quality option
         self.quality_section = QualityInputSection(default_quality=default_quality)
         left_layout.addWidget(self.quality_section)
 
-        # Create slider and label for discipline target values
         self.disc_stat_section = DisciplineInputSection(
             default_disc_target=default_disc_target
         )
         left_layout.addWidget(self.disc_stat_section)
+
+        self.checkbox_grid = CheckboxGrid()
+        left_layout.addWidget(self.checkbox_grid)
 
         # Generate Checkbox Grid
         checkbox_section = QGroupBox()
@@ -541,7 +568,7 @@ class AppUI(QMainWindow):
         label = HoverImage(
             base_pixmap_path=image_path,
             overlay_pixmap_path=overlay_path,
-            image_size=64,
+            image_size=96,
             tooltip_title=item_data["name"],
             tooltip_body=item_data["flavorText"],
         )

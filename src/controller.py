@@ -79,8 +79,6 @@ class AppController:
         self.max_quality = self.configur.getfloat("values", "DEFAULT_MAX_QUALITY")
         self.target_discipline = self.configur.getint("values", "DEFAULT_DISC_TARGET")
 
-        self.handle_armor_refresh()
-
         self.connect_signals()
 
     def connect_signals(self):
@@ -105,6 +103,8 @@ class AppController:
 
     def start_app(self):
         self.ui.show()
+
+        self.handle_armor_refresh()
 
         self.refresh_timer = QTimer()
         self.refresh_timer.timeout.connect(self.handle_armor_refresh)
@@ -316,17 +316,18 @@ class AppController:
 
         skeleton_path = "src/assets/placeholder.png"
 
+        num_cols = self.ui.image_grid.get_num_cols()
         idx = 0
         for row in trash_armor_df.iter_rows(named=True):
             armor_id = row["Id"]
             hash_value = row["Hash"]
-            row = idx // 7
-            col = idx % 7
+            row = idx // num_cols
+            col = idx % num_cols
 
             placeholder = HoverImage(
                 base_pixmap_path=skeleton_path,
                 overlay_pixmap_path=None,
-                image_size=64,
+                image_size=96,
                 tooltip_title="Loading...",
                 tooltip_body="Fetching item details...",
             )
@@ -404,7 +405,7 @@ class AppController:
                 new_label = HoverImage(
                     base_pixmap_path=image_path,
                     overlay_pixmap_path=overlay_path,
-                    image_size=64,
+                    image_size=96,
                     tooltip_title=item_data["name"],
                     tooltip_body=item_data["flavorText"],
                     tooltip_stats=stats_block,
