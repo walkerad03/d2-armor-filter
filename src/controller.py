@@ -328,8 +328,12 @@ class AppController:
 
         if len(unique_hashes) == 0:
             self.ui.set_process_enabled_state(True)
-            self.ui.output_box.setText("There are no armor pieces to delete!")
+            self.ui.write_to_status_bar("There are no armor pieces to delete!")
             return
+
+        self.ui.write_to_status_bar(
+            f"Found {len(unique_hashes)} Armor Pieces to Delete."
+        )
 
         skeleton_path = "src/assets/placeholder.png"
 

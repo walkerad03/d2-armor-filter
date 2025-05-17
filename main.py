@@ -39,6 +39,11 @@ def main():
 
     controller.start_app()
 
+    stylesheet_path = os.path.join(base_dir, "src", "style.qss")
+    with open(stylesheet_path, "r") as f:
+        _style = f.read()
+        app.setStyleSheet(_style)
+
     sys.exit(app.exec_())
 
 

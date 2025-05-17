@@ -62,7 +62,7 @@ class HoverImage(QLabel):
         self.setToolTip(f"""
                         <b>{tooltip_title}</b><br>{tooltip_body}<br>{tooltip_stats}
                         """)
-        self.setStyleSheet("border: 2px solid transparent;")
+        self.setStyleSheet("border: 1px solid transparent;")
 
         self.create_combined_pixmap()
 
@@ -85,14 +85,14 @@ class HoverImage(QLabel):
         self.setPixmap(combined)
 
     def enterEvent(self, a0):
-        self.setStyleSheet("border: 2px solid #00aaff;")
+        self.setStyleSheet("border: 1px solid #f7246c;")
         self.setToolTip(f"""
                         <b>{self.tooltip_title}</b><br>{self.tooltip_body}<br>{self.tooltip_stats}
                         """)
         super().enterEvent(a0)
 
     def leaveEvent(self, a0):
-        self.setStyleSheet("border: 2px solid transparent;")
+        self.setStyleSheet("border: 1px solid transparent;")
         super().leaveEvent(a0)
 
     def resizeEvent(self, a0):
@@ -394,9 +394,9 @@ class AppUI(QMainWindow):
 
         self.setWindowTitle("Walker's Destiny Armor Tool")
         self.setWindowIcon(QIcon("src/assets/icon.png"))
-        self.setGeometry(100, 100, 800, 400)
+        self.setGeometry(100, 100, 1410, 400)
 
-        self.setMinimumWidth(800)
+        self.setMinimumWidth(1410)
 
         central_widget = QWidget()
         central_widget.setLayout(self.initUI())
@@ -478,10 +478,6 @@ class AppUI(QMainWindow):
         self.output_box = QTextEdit()
         self.output_box.setFixedHeight(text_height * 2)
         self.output_box.setReadOnly(True)
-
-        self.output_box.setText(
-            "Welcome to Walker's Armor Cleaner! Select a DIM Armor CSV to begin."
-        )
 
         bottom_layout.addWidget(self.output_box)
 
@@ -578,3 +574,6 @@ class AppUI(QMainWindow):
 
     def add_to_grid_at_coords(self, image, row, col):
         self.image_grid.add_image_at_coords(image, row, col)
+
+    def write_to_status_bar(self, text: str) -> None:
+        self.output_box.setText(text)

@@ -1,0 +1,100 @@
+/* Global defaults */
+* {
+    color: #dbe3fe;
+    background-color: #010819;
+    font-family: "Noto Sans", "Segoe UI", sans-serif;
+    font-size: 13px;
+    border: none;
+}
+
+QGroupBox {
+    border: 1px solid #839afb;
+    border-radius: 6px;
+    padding: 10px;
+    font-weight: bold;
+}
+
+QPushButton {
+    color: #010819;
+    background-color: #f7246c;
+    border-radius: 6px;
+    padding: 10px;
+}
+
+QPushButton:Hover {
+    background-color: #f74a83;
+}
+
+QToolTip {
+    background-color: #010819;
+    color: #ffffff;
+    border: 1px solid #f7246c;
+    padding: 4px;
+}
+
+QLineEdit {
+    background-color: #010819;
+    border: 1px solid #839afb;
+    color: #dbe3fe;
+    padding: 4px;
+    border-radius: 4px;
+}
+
+QSlider::groove:horizontal {
+    border: 1px solid #839afb;
+    height: 6px;
+    background: #1e2640;
+    border-radius: 3px;
+}
+
+QSlider::handle:horizontal {
+    background: #839afb;
+    width: 12px;
+    margin: -4px 0;
+    border-radius: 6px;
+}
+
+QCheckBox {
+    spacing: 6px;
+    color: #dbe3fe;
+}
+QCheckBox::indicator {
+    width: 16px;
+    height: 16px;
+}
+QCheckBox::indicator:unchecked {
+    border: 1px solid #839afb;
+    background-color: transparent;
+}
+QCheckBox::indicator:checked {
+    border: 1px solid #839afb;
+    background-color: #839afb;
+}
+
+QScrollBar:vertical {
+    background: #010819;
+    width: 12px;
+    margin: 0px 0px 0px 0px;
+    border: none;
+}
+
+QScrollBar::handle:vertical {
+    background: #839afb;
+    min-height: 20px;
+    border-radius: 6px;
+}
+
+QScrollBar::handle:vertical:hover {
+    background: #f7246c;
+}
+
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical {
+    height: 0px;
+    subcontrol-origin: margin;
+}
+
+QScrollBar::add-page:vertical,
+QScrollBar::sub-page:vertical {
+    background: none;
+}
