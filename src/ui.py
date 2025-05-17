@@ -1,3 +1,4 @@
+import os
 from configparser import ConfigParser
 
 from PyQt5.QtCore import QSize, Qt, pyqtSignal
@@ -393,7 +394,8 @@ class AppUI(QMainWindow):
         self.configur = config_parser
 
         self.setWindowTitle("Walker's Destiny Armor Tool")
-        self.setWindowIcon(QIcon("src/assets/icon.png"))
+        icon_path = os.path.join("src", "assets", "icon.png")
+        self.setWindowIcon(QIcon(icon_path))
         self.setGeometry(100, 100, 1410, 400)
 
         self.setMinimumWidth(1410)
