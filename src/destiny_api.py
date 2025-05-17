@@ -258,11 +258,14 @@ class ManifestBrowser:
 
         data = res.json()["Response"]
 
-        primary_mem_id = data["primaryMembershipId"]
+        primary_mem_id = data.get("primaryMembershipId", {})
+
+        if not primary_mem_id:
+            raise ValueError("Yikes")
 
         mem_type, mem_id = None, None
 
-        for membership in data["destinyMemberships"]:
+        for membership in data.get("destinyMemberships", []):
             if membership["membershipId"] == primary_mem_id:
                 mem_id = membership["membershipId"]
                 mem_type = membership["membershipType"]

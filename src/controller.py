@@ -1,11 +1,8 @@
 import os
-import threading
-import time
 from typing import Optional
 
 import polars as pl
 from PyQt5.QtCore import QThreadPool, QTimer
-from tqdm import tqdm
 
 from src.armor_cleaner import ArmorFilter, FilterParams
 from src.auth import BungieOAuth
@@ -65,9 +62,6 @@ class AppController:
         self.text_result: Optional[str] = None
         self.image_placeholders: dict = {}
 
-        self.max_quality: Optional[float] = None
-        self.target_discipline: Optional[int] = None
-
         self.ignore_common_armor = self.configur.getboolean("values", "IGNORE_COMMONS")
         self.always_keep_highest_power = False
         self.build_flags = {
@@ -76,8 +70,12 @@ class AppController:
             "Titan": {"MobRes": False, "ResRec": True, "MobRec": False},
         }
 
-        self.max_quality = self.configur.getfloat("values", "DEFAULT_MAX_QUALITY")
-        self.target_discipline = self.configur.getint("values", "DEFAULT_DISC_TARGET")
+        self.max_quality: float = self.configur.getfloat(
+            "values", "DEFAULT_MAX_QUALITY"
+        )
+        self.target_discipline: int = self.configur.getint(
+            "values", "DEFAULT_DISC_TARGET"
+        )
 
         self.connect_signals()
 
@@ -111,6 +109,10 @@ class AppController:
         self.refresh_timer.start(30 * 1000)
 
     def create_armor_df(self) -> pl.DataFrame:
+        assert self.mem_type is not None and self.mem_id is not None, ValueError(
+            "mem_type or mem_id is None"
+        )
+
         res = self.api.query_protected_endpoint(
             f"https://www.bungie.net/Platform/Destiny2/"
             f"{self.mem_type}/Profile/{self.mem_id}/"
@@ -153,7 +155,7 @@ class AppController:
 
         item_dict = []
 
-        for item in tqdm(inventory):
+        for item in inventory:
             item_hash = item.get("itemHash", None)
             item_instance_id = item.get("itemInstanceId", None)
             item_def = self.api.get_inventory_item_from_hash(item_hash)
