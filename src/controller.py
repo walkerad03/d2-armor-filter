@@ -86,6 +86,7 @@ class AppController:
         self.ui.disc_slider_changed.connect(self.handle_disc_slider_change)
         self.ui.quality_updated.connect(self.handle_quality_change)
         self.ui.ignore_commons_updated.connect(self.handle_ignore_commons_change)
+        self.ui.checkbox_grid_triggered.connect(self.handle_checkbox_change)
 
     def handle_armor_refresh(self) -> None:
         self.ui.set_process_enabled_state(False)
@@ -281,6 +282,20 @@ class AppController:
             return
         self.ui.set_clipboard_contents(self.text_result)
         self.ui.output_box.setText("DIM query copied to clipboard.")
+
+    def handle_checkbox_change(self, row, col, state):
+        class_keys: list[str] = ["Hunter", "Warlock", "Titan"]
+        config_keys: list[str] = ["MobRes", "MobRec", "ResRec"]
+
+        for c, class_name in enumerate(class_keys):
+            for r, config_name in enumerate(config_keys):
+                if c != col or r != row:
+                    continue
+                self.build_flags[class_name][config_name] = state
+
+                self.configur.set(class_name, config_name, str(state))
+                with open("config.ini", "w") as configfile:
+                    self.configur.write(configfile)
 
     def handle_process(self):
         self.ui.set_process_enabled_state(False)

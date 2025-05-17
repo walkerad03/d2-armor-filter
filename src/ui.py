@@ -1,7 +1,7 @@
 from configparser import ConfigParser
 
 from PyQt5.QtCore import QSize, Qt, pyqtSignal
-from PyQt5.QtGui import QFontMetrics, QIcon, QPainter, QPixmap
+from PyQt5.QtGui import QClipboard, QFontMetrics, QIcon, QPainter, QPixmap
 from PyQt5.QtSvg import QSvgWidget
 from PyQt5.QtWidgets import (
     QAction,
@@ -47,18 +47,18 @@ class HoverImage(QLabel):
 
         self.image_size = image_size
         self.base_pixmap = QPixmap(base_pixmap_path).scaled(
-            image_size, image_size, Qt.KeepAspectRatio
+            image_size, image_size, Qt.AspectRatioMode.KeepAspectRatio
         )
         self.overlay_pixmap = (
             QPixmap(overlay_pixmap_path).scaled(
-                image_size, image_size, Qt.KeepAspectRatio
+                image_size, image_size, Qt.AspectRatioMode.KeepAspectRatio
             )
             if overlay_pixmap_path
             else None
         )
 
         self.setMouseTracking(True)
-        self.setCursor(Qt.PointingHandCursor)
+        self.setCursor(Qt.CursorShape.PointingHandCursor)
         self.setToolTip(f"""
                         <b>{tooltip_title}</b><br>{tooltip_body}<br>{tooltip_stats}
                         """)
@@ -73,7 +73,7 @@ class HoverImage(QLabel):
             return
 
         combined = QPixmap(self.base_pixmap.size())
-        combined.fill(Qt.transparent)
+        combined.fill(Qt.GlobalColor.transparent)
 
         painter = QPainter(combined)
         painter.drawPixmap(0, 0, self.base_pixmap)
@@ -210,13 +210,13 @@ class IgnoreCommonsSection(QGroupBox):
 class DisciplineInputSection(QGroupBox):
     value_changed = pyqtSignal(int)
 
-    def __init__(self, default_disc_target: float, parent=None):
+    def __init__(self, default_disc_target: int, parent=None):
         super().__init__(parent)
 
         disc_stat_layout = QVBoxLayout()
 
         self.disc_stat_label = QLabel(f"Discipline Target: {default_disc_target}")
-        self.disc_stat_slider = QSlider(Qt.Horizontal)
+        self.disc_stat_slider = QSlider(Qt.Orientation.Horizontal)
         self.disc_stat_slider.setRange(2, 30)
         self.disc_stat_slider.setTickPosition(QSlider.TickPosition.TicksBelow)
         self.disc_stat_slider.setValue(default_disc_target)
@@ -265,8 +265,8 @@ class ImageGrid(QScrollArea):
 
         self.setWidget(self.container)
 
-        self.setHorizontalScrollBarPolicy(Qt.ScrollBarAlwaysOff)
-        self.setVerticalScrollBarPolicy(Qt.ScrollBarAsNeeded)
+        self.setHorizontalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAlwaysOff)
+        self.setVerticalScrollBarPolicy(Qt.ScrollBarPolicy.ScrollBarAsNeeded)
 
     def add_image(self, image: HoverImage):
         num_cols = self.get_num_cols()
@@ -303,9 +303,9 @@ class ImageGrid(QScrollArea):
 
 
 class CheckboxGrid(QGroupBox):
-    value_changed = pyqtSignal(bool)
+    checkbox_toggled = pyqtSignal(int, int, bool)
 
-    def __init__(self, parent=None):
+    def __init__(self, build_flags, parent=None):
         super().__init__(parent)
 
         layout = QGridLayout()
@@ -314,9 +314,66 @@ class CheckboxGrid(QGroupBox):
         for col, label in enumerate(classes):
             layout.addWidget(QLabel(label), 0, col + 1)
 
+        font_metrics = QFontMetrics(QLabel().font())
+        text_height = font_metrics.height()
+
+        icon_paths = [
+            "src/assets/svg/mobility.svg",
+            "src/assets/svg/resilience.svg",
+            "src/assets/svg/recovery.svg",
+        ]
+
+        stat_pairs = [(0, 1), (0, 2), (1, 2)]
+        for row, (i, j) in enumerate(stat_pairs, start=1):
+            layout.addLayout(
+                self.make_double_svg_container(
+                    icon_paths[i], icon_paths[j], text_height
+                ),
+                row,
+                0,
+            )
+
+        self.checkboxes: list[list[QCheckBox]] = [
+            [QCheckBox() for _ in range(3)] for _ in range(3)
+        ]
+
+        for x in range(3):
+            for y in range(3):
+                checkbox = QCheckBox()
+                layout.addWidget(checkbox, x + 1, y + 1)
+                self.checkboxes[x][y] = checkbox
+
+                checkbox.stateChanged.connect(
+                    lambda state, r=x, c=y: self.checkbox_toggled.emit(
+                        r, c, state == Qt.CheckState.Checked
+                    )
+                )
+
+        class_keys: list[str] = ["Hunter", "Warlock", "Titan"]
+        config_keys: list[str] = ["MobRes", "MobRec", "ResRec"]
+
+        for col, class_key in enumerate(class_keys):
+            for row, stat_key in enumerate(config_keys):
+                value = build_flags.get(class_key, {}).get(stat_key, False)
+                self.checkboxes[row][col].setChecked(value)
+
         self.setLayout(layout)
         self.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
         self.setToolTip("Check any bottom bucket stat combos you wish to keep")
+
+    def make_double_svg_container(self, path_1, path_2, size):
+        layout = QHBoxLayout()
+        layout.setContentsMargins(0, 0, 0, 0)
+
+        icon_1 = QSvgWidget(path_1)
+        icon_2 = QSvgWidget(path_2)
+
+        icon_1.setFixedSize(size, size)
+        icon_2.setFixedSize(size, size)
+        layout.addWidget(icon_1)
+        layout.addWidget(icon_2)
+
+        return layout
 
 
 class AppUI(QMainWindow):
@@ -327,6 +384,8 @@ class AppUI(QMainWindow):
     disc_slider_changed = pyqtSignal(int)
     quality_updated = pyqtSignal(float)
     ignore_commons_updated = pyqtSignal(bool)
+
+    checkbox_grid_triggered = pyqtSignal(int, int, bool)
 
     def __init__(self, config_parser: ConfigParser):
         super().__init__()
@@ -349,6 +408,7 @@ class AppUI(QMainWindow):
         default_ignore_commons_value = self.configur.getboolean(
             "values", "IGNORE_COMMONS"
         )
+        default_build_flags = self.get_build_flags()
 
         main_layout = QVBoxLayout()
         top_layout = QHBoxLayout()
@@ -357,95 +417,26 @@ class AppUI(QMainWindow):
         left_layout = QVBoxLayout()
 
         self.reload_section = ReloadButtonSection()
+        self.reload_section.button_clicked.connect(self.trigger_armor_refresh)
         left_layout.addWidget(self.reload_section)
 
         self.quality_section = QualityInputSection(default_quality=default_quality)
+        self.quality_section.value_changed.connect(self.update_quality_config)
         left_layout.addWidget(self.quality_section)
 
         self.disc_stat_section = DisciplineInputSection(
             default_disc_target=default_disc_target
         )
+        self.disc_stat_section.value_changed.connect(self.update_disc_slider)
         left_layout.addWidget(self.disc_stat_section)
 
-        self.checkbox_grid = CheckboxGrid()
+        self.checkbox_grid = CheckboxGrid(default_build_flags)
+        self.checkbox_grid.checkbox_toggled.connect(self.handle_checkbox_change)
         left_layout.addWidget(self.checkbox_grid)
 
-        # Generate Checkbox Grid
-        checkbox_section = QGroupBox()
-        checkbox_layout = QGridLayout()
-
-        classes = ["Hunter", "Warlock", "Titan"]
-        for col, label in enumerate(classes):
-            checkbox_layout.addWidget(QLabel(label), 0, col + 1)
-
-        font_metrics = QFontMetrics(QLabel().font())
-        text_height = font_metrics.height()
-
-        icon_paths = [
-            "src/assets/svg/mobility.svg",
-            "src/assets/svg/resilience.svg",
-            "src/assets/svg/recovery.svg",
-        ]
-
-        stat_pairs = [(0, 1), (0, 2), (1, 2)]
-        for row, (i, j) in enumerate(stat_pairs, start=1):
-            checkbox_layout.addLayout(
-                self.make_double_svg_container(
-                    icon_paths[i], icon_paths[j], text_height
-                ),
-                row,
-                0,
-            )
-
-        self.checkboxes = [[None for _ in range(3)] for _ in range(3)]
-
-        for x in range(3):
-            for y in range(3):
-                checkbox = QCheckBox()
-                checkbox_layout.addWidget(checkbox, x + 1, y + 1)
-                self.checkboxes[x][y] = checkbox
-
-                checkbox.stateChanged.connect(
-                    lambda _, r=x, c=y: self.update_config_from_checkbox(r, c)
-                )
-
-        self.config_keys = ["mob_res", "mob_rec", "res_rec"]
-        self.class_keys = [
-            "hunter distributions",
-            "warlock distributions",
-            "titan distributions",
-        ]
-
-        for col, class_key in enumerate(self.class_keys):
-            for row, stat_key in enumerate(self.config_keys):
-                value = self.configur.getboolean(class_key, stat_key)
-                self.checkboxes[row][col].setChecked(value)
-
-        checkbox_section.setLayout(checkbox_layout)
-        checkbox_section.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
-        checkbox_section.setToolTip(
-            "Check any bottom bucket stat combos you wish to keep"
-        )
-
-        left_layout.addWidget(checkbox_section)
-
         self.ignore_commons_section = IgnoreCommonsSection(default_ignore_commons_value)
+        self.ignore_commons_section.button_checked.connect(self.update_ignore_commons)
         left_layout.addWidget(self.ignore_commons_section)
-
-        copy_all_section = QGroupBox()
-        copy_all_layout = QHBoxLayout()
-
-        self.copy_all_button = QPushButton("Copy to Clipboard")
-
-        copy_all_section.setToolTip(
-            "Create a DIM query to highlight everything at once.\nClick on the tiles to copy individual IDs."
-        )
-        copy_all_layout.addWidget(self.copy_all_button)
-
-        copy_all_section.setLayout(copy_all_layout)
-        copy_all_section.setSizePolicy(QSizePolicy.Preferred, QSizePolicy.Maximum)
-
-        left_layout.addWidget(copy_all_section)
 
         # Set layout options for left layout
         left_widget = QWidget()
@@ -458,8 +449,12 @@ class AppUI(QMainWindow):
         self.image_grid = ImageGrid()
         right_layout.addWidget(self.image_grid)
 
-        self.run_button = QPushButton("Clean Armor")
-        self.run_button.setToolTip("Press after setting all other settings")
+        self.run_button = QPushButton("Apply Settings")
+        self.run_button.setToolTip(
+            "Press after setting all other settings\n"
+            "This will auto-run every 30 seconds."
+        )
+        self.run_button.clicked.connect(self.trigger_process)
         right_layout.addWidget(self.run_button)
 
         # Set right layout options
@@ -477,6 +472,9 @@ class AppUI(QMainWindow):
 
         main_layout.addWidget(top_widget)
 
+        font_metrics = QFontMetrics(QLabel().font())
+        text_height = font_metrics.height()
+
         self.output_box = QTextEdit()
         self.output_box.setFixedHeight(text_height * 2)
         self.output_box.setReadOnly(True)
@@ -493,30 +491,20 @@ class AppUI(QMainWindow):
 
         main_layout.addWidget(bottom_widget)
 
-        # set connections
-        self.quality_section.value_changed.connect(self.update_quality_config)
-        self.disc_stat_section.value_changed.connect(self.update_disc_slider)
-        self.ignore_commons_section.button_checked.connect(self.update_ignore_commons)
-
-        self.reload_section.button_clicked.connect(self.trigger_armor_refresh)
-        self.run_button.clicked.connect(self.trigger_process)
-        self.copy_all_button.clicked.connect(self.copy_query_to_clipboard)
-
         return main_layout
 
-    def make_double_svg_container(self, path_1, path_2, size):
-        layout = QHBoxLayout()
-        layout.setContentsMargins(0, 0, 0, 0)
+    def get_build_flags(self):
+        class_keys: list[str] = ["Hunter", "Warlock", "Titan"]
+        config_keys: list[str] = ["MobRes", "MobRec", "ResRec"]
 
-        icon_1 = QSvgWidget(path_1)
-        icon_2 = QSvgWidget(path_2)
+        flags = {}
 
-        icon_1.setFixedSize(size, size)
-        icon_2.setFixedSize(size, size)
-        layout.addWidget(icon_1)
-        layout.addWidget(icon_2)
-
-        return layout
+        for class_name in class_keys:
+            class_flags = {}
+            for stat_key in config_keys:
+                class_flags[stat_key] = self.configur.getboolean(class_name, stat_key)
+            flags[class_name] = class_flags
+        return flags
 
     def copy_query_to_clipboard(self):
         self.copy_query_triggered.emit()
@@ -561,6 +549,9 @@ class AppUI(QMainWindow):
     def trigger_process(self):
         self.process_triggered.emit()
 
+    def handle_checkbox_change(self, row: int, col: int, state: bool):
+        self.checkbox_grid_triggered.emit(row, col, state)
+
     def show_warning(self, title: str = "", body: str = ""):
         QMessageBox.warning(self, title, body)
 
@@ -578,7 +569,9 @@ class AppUI(QMainWindow):
         self.run_button.setEnabled(enabled)
 
     def set_clipboard_contents(self, to_copy: str):
-        QApplication.clipboard().setText(to_copy)
+        clipboard: None | QClipboard = QApplication.clipboard()
+        assert type(clipboard) is QClipboard, TypeError("Clipboard is None-Type")
+        clipboard.setText(to_copy)
 
     def clear_photo_grid(self):
         self.image_grid.clear_grid()
